@@ -1,0 +1,35 @@
+name: laundry_system
+description: A comprehensive laundry management system with Flutter and Firebase
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # State Management
+  flutter_riverpod: ^2.4.9
+  
+  # Firebase
+  firebase_core: ^2.27.0
+  firebase_auth: ^4.17.8
+  cloud_firestore: ^4.15.8
+  
+  # UI/UX
+  cupertino_icons: ^1.0.2
+  google_fonts: ^6.1.0
+  
+  # Utilities
+  intl: ^0.18.1
+  uuid: ^4.2.2
+  
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

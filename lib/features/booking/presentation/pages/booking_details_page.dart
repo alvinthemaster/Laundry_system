@@ -33,6 +33,26 @@ class BookingDetailsPage extends ConsumerWidget {
   }
   
   Future<void> _cancelBooking(BuildContext context, WidgetRef ref) async {
+    // Block cancellation for GCash payments
+    if (booking.paymentMethod == 'GCash') {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Cannot Cancel'),
+          content: const Text(
+            'Bookings paid via GCash cannot be cancelled as the payment has already been processed.\n\nPlease contact support if you need assistance.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -66,6 +86,182 @@ class BookingDetailsPage extends ConsumerWidget {
           AppUtils.showSnackBar(context, error ?? 'Failed to cancel booking', isError: true);
         }
       }
+    }
+  }
+  
+  Future<void> _reschedulePickup(BuildContext context, WidgetRef ref) async {
+    // Only allow reschedule for pickup type bookings
+    if (booking.bookingType != 'pickup' || booking.pickupDate == null) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Cannot Reschedule'),
+          content: const Text('Only pickup bookings can be rescheduled.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    
+    // Check if within 24 hours
+    final currentPickupDate = booking.pickupDate!;
+    final now = DateTime.now();
+    final difference = currentPickupDate.difference(now);
+    
+    if (difference.inHours < 24) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Cannot Reschedule'),
+          content: Text(
+            'Sorry, you cannot reschedule within 24 hours of your pickup time.\\n\\nYour current pickup: ${DateFormat('MMM dd, yyyy').format(currentPickupDate)} at ${booking.pickupTime}',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    
+    // Show reschedule dialog
+    DateTime? selectedDate;
+    TimeOfDay? selectedTime;
+    
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Reschedule Pickup'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Current Pickup:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              Text('${DateFormat('MMM dd, yyyy').format(currentPickupDate)} at ${booking.pickupTime}'),
+              const SizedBox(height: 20),
+              Text(
+                'New Pickup Date:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: currentPickupDate.add(const Duration(days: 1)),
+                    firstDate: DateTime.now().add(const Duration(hours: 24)),
+                    lastDate: DateTime.now().add(const Duration(days: 30)),
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      selectedDate = picked;
+                    });
+                  }
+                },
+                icon: const Icon(Icons.calendar_today),
+                label: Text(
+                  selectedDate == null
+                      ? 'Select Date'
+                      : DateFormat('MMM dd, yyyy').format(selectedDate!),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'New Pickup Time:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final picked = await showTimePicker(
+                    context: context,
+                    initialTime: const TimeOfDay(hour: 9, minute: 0),
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      selectedTime = picked;
+                    });
+                  }
+                },
+                icon: const Icon(Icons.access_time),
+                label: Text(
+                  selectedTime == null
+                      ? 'Select Time'
+                      : selectedTime!.format(context),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: (selectedDate != null && selectedTime != null)
+                  ? () {
+                      Navigator.of(context).pop();
+                      _confirmReschedule(
+                        context,
+                        ref,
+                        selectedDate!,
+                        selectedTime!,
+                      );
+                    }
+                  : null,
+              child: const Text('Reschedule'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Future<void> _confirmReschedule(
+    BuildContext context,
+    WidgetRef ref,
+    DateTime newDate,
+    TimeOfDay newTime,
+  ) async {
+    final success = await ref.read(bookingProvider.notifier).reschedulePickup(
+          bookingId: booking.bookingId,
+          newPickupDate: newDate,
+          newPickupTime: newTime.format(context),
+        );
+    
+    if (!context.mounted) return;
+    
+    if (success) {
+      AppUtils.showSnackBar(context, 'Pickup rescheduled successfully!');
+      Navigator.of(context).pop(); // Go back to refresh
+    } else {
+      final error = ref.read(bookingProvider).error;
+      AppUtils.showSnackBar(
+        context,
+        error ?? 'Failed to reschedule pickup',
+        isError: true,
+      );
     }
   }
   
@@ -140,33 +336,77 @@ class BookingDetailsPage extends ConsumerWidget {
                   ),
                   const SizedBox(height: 16),
                   
+                  // Categories (Multi-category support)
+                  if (booking.categories.isNotEmpty) ...[
+                    _buildDetailRow(
+                      context,
+                      Icons.category,
+                      'Categories',
+                      booking.categories.map((cat) {
+                        final name = cat['name'] ?? 'Unknown';
+                        final weight = cat['weight'] ?? 0.0;
+                        return '$name (${weight}kg)';
+                      }).join(', '),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  
                   _buildDetailRow(
                     context,
                     Icons.local_laundry_service,
                     'Service Type',
-                    booking.serviceType,
+                    booking.selectedServices.isNotEmpty 
+                        ? booking.selectedServices.join(', ') 
+                        : (booking.serviceType ?? 'N/A'),
                   ),
                   const SizedBox(height: 12),
                   _buildDetailRow(
                     context,
                     Icons.scale,
-                    'Weight',
+                    'Total Weight',
                     '${booking.weight} kg',
                   ),
                   const SizedBox(height: 12),
+                  
+                  // Booking Type
                   _buildDetailRow(
                     context,
-                    Icons.calendar_today,
-                    'Pickup Date',
-                    DateFormat('MMMM dd, yyyy').format(booking.pickupDate),
+                    Icons.shopping_bag,
+                    'Booking Type',
+                    booking.bookingType.toUpperCase(),
                   ),
                   const SizedBox(height: 12),
-                  _buildDetailRow(
-                    context,
-                    Icons.access_time,
-                    'Pickup Time',
-                    booking.pickupTime,
-                  ),
+                  
+                  // Delivery Address (if delivery type)
+                  if (booking.deliveryAddress != null) ...[
+                    _buildDetailRow(
+                      context,
+                      Icons.location_on,
+                      'Delivery Address',
+                      booking.deliveryAddress!,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  
+                  // Pickup Date/Time (if pickup type)
+                  if (booking.pickupDate != null) ...[
+                    _buildDetailRow(
+                      context,
+                      Icons.calendar_today,
+                      'Pickup Date',
+                      DateFormat('MMMM dd, yyyy').format(booking.pickupDate!),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (booking.pickupTime != null) ...[
+                    _buildDetailRow(
+                      context,
+                      Icons.access_time,
+                      'Pickup Time',
+                      booking.pickupTime!,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   
                   if (booking.specialInstructions != null) ...[
                     const SizedBox(height: 12),
@@ -211,7 +451,9 @@ class BookingDetailsPage extends ConsumerWidget {
                             Text('Service Charge (${booking.weight} kg)'),
                             Text(
                               AppUtils.formatCurrency(
-                                booking.weight * booking.servicePrice,
+                                booking.servicesTotal > 0 
+                                    ? booking.servicesTotal 
+                                    : (booking.weight * (booking.servicePrice ?? 0)),
                               ),
                             ),
                           ],
@@ -278,18 +520,47 @@ class BookingDetailsPage extends ConsumerWidget {
                     ),
                   ),
                   
+                  // Reschedule Button (only for pickup bookings)
+                  if ((booking.status == 'Pending' || booking.status == 'Confirmed') &&
+                      booking.bookingType == 'pickup' &&
+                      booking.pickupDate != null) ...[
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _reschedulePickup(context, ref),
+                        icon: const Icon(Icons.schedule),
+                        label: const Text('Reschedule Pickup'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                  
                   // Cancel Button
                   if (booking.status == 'Pending' || booking.status == 'Confirmed') ...[
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton(
-                        onPressed: () => _cancelBooking(context, ref),
+                        onPressed: booking.paymentMethod == 'GCash' 
+                            ? null 
+                            : () => _cancelBooking(context, ref),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.red,
-                          side: const BorderSide(color: Colors.red),
+                          side: BorderSide(
+                            color: booking.paymentMethod == 'GCash' 
+                                ? Colors.grey 
+                                : Colors.red,
+                          ),
                         ),
-                        child: const Text('Cancel Booking'),
+                        child: Text(
+                          booking.paymentMethod == 'GCash'
+                              ? 'Cannot Cancel (GCash Payment)'
+                              : 'Cancel Booking',
+                        ),
                       ),
                     ),
                   ],

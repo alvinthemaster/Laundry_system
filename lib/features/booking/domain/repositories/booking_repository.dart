@@ -6,10 +6,14 @@ abstract class BookingRepository {
   // Create new booking
   Future<Either<Failure, BookingEntity>> createBooking({
     required String userId,
-    required String serviceType,
-    required double weight,
-    required DateTime pickupDate,
-    required String pickupTime,
+    required List<Map<String, dynamic>> categories,
+    required List<String> selectedServices,
+    required List<Map<String, dynamic>> selectedAddOns,
+    required String bookingType,
+    String? deliveryAddress,
+    DateTime? pickupDate,
+    String? pickupTime,
+    required String paymentMethod,
     String? specialInstructions,
   });
   
@@ -22,10 +26,10 @@ abstract class BookingRepository {
   // Cancel booking
   Future<Either<Failure, void>> cancelBooking(String bookingId);
   
-  // Calculate total amount
-  double calculateTotalAmount({
-    required String serviceType,
-    required double weight,
-    required double bookingFee,
+  // Reschedule pickup
+  Future<Either<Failure, void>> reschedulePickup({
+    required String bookingId,
+    required DateTime newPickupDate,
+    required String newPickupTime,
   });
 }

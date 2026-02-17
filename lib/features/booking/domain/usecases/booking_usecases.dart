@@ -1,3 +1,4 @@
+import 'package:laundry_system/core/errors/failures.dart';
 import 'package:laundry_system/features/auth/domain/repositories/auth_repository.dart';
 import 'package:laundry_system/features/booking/domain/entities/booking_entity.dart';
 import 'package:laundry_system/features/booking/domain/repositories/booking_repository.dart';
@@ -9,18 +10,26 @@ class CreateBookingUseCase {
   
   Future<Either<dynamic, BookingEntity>> call({
     required String userId,
-    required String serviceType,
-    required double weight,
-    required DateTime pickupDate,
-    required String pickupTime,
+    required List<Map<String, dynamic>> categories,
+    required List<String> selectedServices,
+    required List<Map<String, dynamic>> selectedAddOns,
+    required String bookingType,
+    String? deliveryAddress,
+    DateTime? pickupDate,
+    String? pickupTime,
+    required String paymentMethod,
     String? specialInstructions,
   }) {
     return repository.createBooking(
       userId: userId,
-      serviceType: serviceType,
-      weight: weight,
+      categories: categories,
+      selectedServices: selectedServices,
+      selectedAddOns: selectedAddOns,
+      bookingType: bookingType,
+      deliveryAddress: deliveryAddress,
       pickupDate: pickupDate,
       pickupTime: pickupTime,
+      paymentMethod: paymentMethod,
       specialInstructions: specialInstructions,
     );
   }
@@ -55,21 +64,20 @@ class CancelBookingUseCase {
     return repository.cancelBooking(bookingId);
   }
 }
-
-class CalculateTotalAmountUseCase {
-  final BookingRepository repository;
+class ReschedulePickupUseCase {
+  final BookingRepository _repository;
   
-  const CalculateTotalAmountUseCase(this.repository);
+  ReschedulePickupUseCase(this._repository);
   
-  double call({
-    required String serviceType,
-    required double weight,
-    required double bookingFee,
+  Future<Either<Failure, void>> call({
+    required String bookingId,
+    required DateTime newPickupDate,
+    required String newPickupTime,
   }) {
-    return repository.calculateTotalAmount(
-      serviceType: serviceType,
-      weight: weight,
-      bookingFee: bookingFee,
+    return _repository.reschedulePickup(
+      bookingId: bookingId,
+      newPickupDate: newPickupDate,
+      newPickupTime: newPickupTime,
     );
   }
 }

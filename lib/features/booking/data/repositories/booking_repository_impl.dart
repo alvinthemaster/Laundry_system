@@ -1,4 +1,3 @@
-import 'package:laundry_system/core/constants/app_constants.dart';
 import 'package:laundry_system/core/errors/failures.dart';
 import 'package:laundry_system/features/auth/domain/repositories/auth_repository.dart';
 import 'package:laundry_system/features/booking/data/datasources/booking_data_source.dart';
@@ -13,19 +12,27 @@ class BookingRepositoryImpl implements BookingRepository {
   @override
   Future<Either<Failure, BookingEntity>> createBooking({
     required String userId,
-    required String serviceType,
-    required double weight,
-    required DateTime pickupDate,
-    required String pickupTime,
+    required List<Map<String, dynamic>> categories,
+    required List<String> selectedServices,
+    required List<Map<String, dynamic>> selectedAddOns,
+    required String bookingType,
+    String? deliveryAddress,
+    DateTime? pickupDate,
+    String? pickupTime,
+    required String paymentMethod,
     String? specialInstructions,
   }) async {
     try {
       final booking = await dataSource.createBooking(
         userId: userId,
-        serviceType: serviceType,
-        weight: weight,
+        categories: categories,
+        selectedServices: selectedServices,
+        selectedAddOns: selectedAddOns,
+        bookingType: bookingType,
+        deliveryAddress: deliveryAddress,
         pickupDate: pickupDate,
         pickupTime: pickupTime,
+        paymentMethod: paymentMethod,
         specialInstructions: specialInstructions,
       );
       return Either.right(booking);
@@ -62,15 +69,22 @@ class BookingRepositoryImpl implements BookingRepository {
     } catch (e) {
       return Either.left(ServerFailure(e.toString()));
     }
-  }
-  
+  }  
   @override
-  double calculateTotalAmount({
-    required String serviceType,
-    required double weight,
-    required double bookingFee,
-  }) {
-    final servicePrice = AppConstants.serviceTypes[serviceType] ?? 0.0;
-    return (weight * servicePrice) + bookingFee;
+  Future<Either<Failure, void>> reschedulePickup({
+    required String bookingId,
+    required DateTime newPickupDate,
+    required String newPickupTime,
+  }) async {
+    try {
+      await dataSource.reschedulePickup(
+        bookingId: bookingId,
+        newPickupDate: newPickupDate,
+        newPickupTime: newPickupTime,
+      );
+      return Either.right(null);
+    } catch (e) {
+      return Either.left(ServerFailure(e.toString()));
+    }
   }
 }

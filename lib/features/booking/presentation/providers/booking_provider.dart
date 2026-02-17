@@ -32,8 +32,8 @@ final cancelBookingUseCaseProvider = Provider<CancelBookingUseCase>((ref) {
   return CancelBookingUseCase(ref.read(bookingRepositoryProvider));
 });
 
-final calculateTotalAmountUseCaseProvider = Provider<CalculateTotalAmountUseCase>((ref) {
-  return CalculateTotalAmountUseCase(ref.read(bookingRepositoryProvider));
+final reschedulePickupUseCaseProvider = Provider<ReschedulePickupUseCase>((ref) {
+  return ReschedulePickupUseCase(ref.read(bookingRepositoryProvider));
 });
 
 // Booking State
@@ -71,32 +71,40 @@ class BookingNotifier extends StateNotifier<BookingState> {
   final GetUserBookingsUseCase _getUserBookingsUseCase;
   final GetBookingByIdUseCase _getBookingByIdUseCase;
   final CancelBookingUseCase _cancelBookingUseCase;
-  final CalculateTotalAmountUseCase _calculateTotalAmountUseCase;
+  final ReschedulePickupUseCase _reschedulePickupUseCase;
   
   BookingNotifier(
     this._createBookingUseCase,
     this._getUserBookingsUseCase,
     this._getBookingByIdUseCase,
     this._cancelBookingUseCase,
-    this._calculateTotalAmountUseCase,
+    this._reschedulePickupUseCase,
   ) : super(const BookingState());
   
   Future<bool> createBooking({
     required String userId,
-    required String serviceType,
-    required double weight,
-    required DateTime pickupDate,
-    required String pickupTime,
+    required List<Map<String, dynamic>> categories,
+    required List<String> selectedServices,
+    required List<Map<String, dynamic>> selectedAddOns,
+    required String bookingType,
+    String? deliveryAddress,
+    DateTime? pickupDate,
+    String? pickupTime,
+    required String paymentMethod,
     String? specialInstructions,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
     
     final result = await _createBookingUseCase(
       userId: userId,
-      serviceType: serviceType,
-      weight: weight,
+      categories: categories,
+      selectedServices: selectedServices,
+      selectedAddOns: selectedAddOns,
+      bookingType: bookingType,
+      deliveryAddress: deliveryAddress,
       pickupDate: pickupDate,
       pickupTime: pickupTime,
+      paymentMethod: paymentMethod,
       specialInstructions: specialInstructions,
     );
     
@@ -126,8 +134,8 @@ class BookingNotifier extends StateNotifier<BookingState> {
     
     result.fold(
       (failure) {
-        print('Error loading bookings: ${failure.message}');
-        state = state.copyWith(isLoading: false, error: failure.message);
+        print('Error loading bookings: ${failure.toString()}');
+        state = state.copyWith(isLoading: false, error: failure.toString());
       },
       (bookings) {
         print('Successfully loaded ${bookings.length} bookings for user $userId');
@@ -142,7 +150,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
     final result = await _getBookingByIdUseCase(bookingId);
     
     result.fold(
-      (failure) => state = state.copyWith(isLoading: false, error: failure.message),
+      (failure) => state = state.copyWith(isLoading: false, error: failure.toString()),
       (booking) => state = state.copyWith(isLoading: false, selectedBooking: booking),
     );
   }
@@ -154,7 +162,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
     
     return result.fold(
       (failure) {
-        state = state.copyWith(isLoading: false, error: failure.message);
+        state = state.copyWith(isLoading: false, error: failure.toString());
         return false;
       },
       (_) {
@@ -164,15 +172,22 @@ class BookingNotifier extends StateNotifier<BookingState> {
             return BookingEntity(
               bookingId: booking.bookingId,
               userId: booking.userId,
-              serviceType: booking.serviceType,
+              categories: booking.categories,
+              categoryTotal: booking.categoryTotal,
+              selectedServices: booking.selectedServices,
+              selectedAddOns: booking.selectedAddOns,
               weight: booking.weight,
+              servicesTotal: booking.servicesTotal,
+              addOnsTotal: booking.addOnsTotal,
               bookingFee: booking.bookingFee,
-              servicePrice: booking.servicePrice,
               totalAmount: booking.totalAmount,
+              bookingType: booking.bookingType,
+              deliveryAddress: booking.deliveryAddress,
               pickupDate: booking.pickupDate,
               pickupTime: booking.pickupTime,
               status: 'Cancelled',
               paymentStatus: booking.paymentStatus,
+              paymentMethod: booking.paymentMethod,
               specialInstructions: booking.specialInstructions,
               createdAt: booking.createdAt,
             );
@@ -186,15 +201,57 @@ class BookingNotifier extends StateNotifier<BookingState> {
     );
   }
   
-  double calculateTotalAmount({
-    required String serviceType,
-    required double weight,
-    required double bookingFee,
-  }) {
-    return _calculateTotalAmountUseCase(
-      serviceType: serviceType,
-      weight: weight,
-      bookingFee: bookingFee,
+  Future<bool> reschedulePickup({
+    required String bookingId,
+    required DateTime newPickupDate,
+    required String newPickupTime,
+  }) async {
+    state = state.copyWith(isLoading: true, error: null);
+    
+    final result = await _reschedulePickupUseCase(
+      bookingId: bookingId,
+      newPickupDate: newPickupDate,
+      newPickupTime: newPickupTime,
+    );
+    
+    return result.fold(
+      (failure) {
+        state = state.copyWith(isLoading: false, error: failure.message);
+        return false;
+      },
+      (_) {
+        // Update booking in list
+        final updatedBookings = state.bookings.map((booking) {
+          if (booking.bookingId == bookingId) {
+            return BookingEntity(
+              bookingId: booking.bookingId,
+              userId: booking.userId,
+              categories: booking.categories,
+              categoryTotal: booking.categoryTotal,
+              selectedServices: booking.selectedServices,
+              selectedAddOns: booking.selectedAddOns,
+              weight: booking.weight,
+              servicesTotal: booking.servicesTotal,
+              addOnsTotal: booking.addOnsTotal,
+              bookingFee: booking.bookingFee,
+              totalAmount: booking.totalAmount,
+              bookingType: booking.bookingType,
+              deliveryAddress: booking.deliveryAddress,
+              pickupDate: newPickupDate,
+              pickupTime: newPickupTime,
+              status: booking.status,
+              paymentStatus: booking.paymentStatus,
+              paymentMethod: booking.paymentMethod,
+              specialInstructions: booking.specialInstructions,
+              createdAt: booking.createdAt,
+            );
+          }
+          return booking;
+        }).toList();
+        
+        state = state.copyWith(isLoading: false, bookings: updatedBookings);
+        return true;
+      },
     );
   }
 }
@@ -206,6 +263,6 @@ final bookingProvider = StateNotifierProvider<BookingNotifier, BookingState>((re
     ref.read(getUserBookingsUseCaseProvider),
     ref.read(getBookingByIdUseCaseProvider),
     ref.read(cancelBookingUseCaseProvider),
-    ref.read(calculateTotalAmountUseCaseProvider),
+    ref.read(reschedulePickupUseCaseProvider),
   );
 });

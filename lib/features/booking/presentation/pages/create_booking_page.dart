@@ -658,7 +658,7 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Price Summary',
+                  'ummary',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -735,11 +735,6 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
             _buildPriceRow(
               'Category Total',
               AppUtils.formatCurrency(pricing['categoryTotal']!),
-            ),
-            const SizedBox(height: 8),
-            _buildPriceRow(
-              'Services Total',
-              AppUtils.formatCurrency(pricing['servicesTotal']!),
             ),
             const SizedBox(height: 8),
             _buildPriceRow(

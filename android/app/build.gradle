@@ -40,10 +40,19 @@ android {
         main.java.srcDirs += 'src/main/kotlin'
     }
 
+    signingConfigs {
+        release {
+            storeFile file("release-keystore.jks")
+            storePassword "laundry123"
+            keyAlias "laundry-key"
+            keyPassword "laundry123"
+        }
+    }
+
     defaultConfig {
         applicationId "com.laundry.system"
         minSdkVersion flutter.minSdkVersion
-        targetSdk 34
+        targetSdkVersion 34
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
         multiDexEnabled true
@@ -51,7 +60,9 @@ android {
 
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            shrinkResources false
         }
     }
 }

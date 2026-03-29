@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 import 'package:laundry_system/core/constants/app_constants.dart';
-import 'package:laundry_system/core/services/pricing_service.dart';
 import 'package:laundry_system/features/booking/data/models/booking_model.dart';
 
 abstract class BookingDataSource {
@@ -16,8 +15,16 @@ abstract class BookingDataSource {
     String? pickupTime,
     required String paymentMethod,
     String? specialInstructions,
+    String? selectedSlot,
+    double? totalAmount,
+    String? customerName,
   });
   
+  Future<List<String>> getBookedSlots({
+    required DateTime date,
+    required String time,
+  });
+
   Future<List<BookingModel>> getUserBookings(String userId);
   Future<BookingModel> getBookingById(String bookingId);
   Future<void> cancelBooking(String bookingId);
@@ -25,6 +32,7 @@ abstract class BookingDataSource {
     required String bookingId,
     required DateTime newPickupDate,
     required String newPickupTime,
+    String? newSlot,
   });
   Future<void> createPaymentRecord({
     required String bookingId,
@@ -56,89 +64,93 @@ class BookingDataSourceImpl implements BookingDataSource {
     String? pickupTime,
     required String paymentMethod,
     String? specialInstructions,
+    String? selectedSlot,
+    double? totalAmount,
+    String? customerName,
   }) async {
     try {
-      // Calculate all pricing components using PricingService
-      final categoryTotal = PricingService.calculateMultipleCategoriesTotal(categories);
-      
-      // Calculate total weight from all categories
-      double totalWeight = 0.0;
-      for (final category in categories) {
-        totalWeight += (category['weight'] as num).toDouble();
-      }
-      
-      // Add computed price to each category
-      final categoriesWithPrice = categories.map((cat) {
-        final name = cat['name'] as String;
-        final weight = (cat['weight'] as num).toDouble();
-        final computedPrice = PricingService.calculateCategoryPrice(
-          category: name,
-          weight: weight,
-        );
-        return {
-          'name': name,
-          'weight': weight,
-          'computedPrice': computedPrice,
-        };
-      }).toList();
-      
-      final servicesTotal = PricingService.calculateServicesTotal(selectedServices);
-      final addOnsTotal = PricingService.calculateAddOnsTotal(selectedAddOns);
-      
-      final totalAmount = PricingService.calculateGrandTotalMultiCategory(
-        categories: categoriesWithPrice,
-        selectedServices: selectedServices,
-        selectedAddOns: selectedAddOns,
-      );
-      
-      // Determine payment status based on payment method
-      // GCash = Paid (instant), Cash/COD = Unpaid (pay on delivery/pickup)
+      // Fixed slot-based pricing: always ₱50 per booking
+      const fixedTotal = 50.0;
+      final resolvedTotal = totalAmount ?? fixedTotal;
+
+      // Determine payment status
       final paymentStatus = paymentMethod == AppConstants.paymentGCash
           ? AppConstants.paymentPaid
           : AppConstants.paymentUnpaid;
-      
-      // Create booking model
+
       final bookingId = _uuid.v4();
+      final addOnsTotal = selectedAddOns.fold<double>(
+        0.0,
+        (sum, e) => sum + ((e['price'] as num?)?.toDouble() ?? 0.0),
+      );
+
       final bookingModel = BookingModel(
         bookingId: bookingId,
         userId: userId,
-        categories: categoriesWithPrice,
-        categoryTotal: categoryTotal,
+        categories: categories,
+        categoryTotal: 0.0,
         selectedServices: selectedServices,
         selectedAddOns: selectedAddOns,
-        weight: totalWeight,
-        servicesTotal: servicesTotal,
+        weight: 0.0,
+        servicesTotal: 0.0,
         addOnsTotal: addOnsTotal,
         bookingFee: AppConstants.bookingFee,
-        totalAmount: totalAmount,
+        totalAmount: resolvedTotal,
         bookingType: bookingType,
         deliveryAddress: deliveryAddress,
         pickupDate: pickupDate,
         pickupTime: pickupTime,
-        status: AppConstants.statusConfirmed, // Confirmed after payment
+        status: AppConstants.statusConfirmed,
         paymentStatus: paymentStatus,
         paymentMethod: paymentMethod,
         specialInstructions: specialInstructions,
         createdAt: DateTime.now(),
-        // Legacy compatibility
-        category: categoriesWithPrice.isNotEmpty ? categoriesWithPrice.first['name'] as String? : null,
-        serviceType: selectedServices.isNotEmpty ? selectedServices.first : null,
-        servicePrice: servicesTotal,
-        basePrice: categoryTotal,
+        selectedSlot: selectedSlot,
+        customerName: customerName,
       );
-      
-      // Save to Firestore
+
       await _firestore
           .collection(AppConstants.bookingsCollection)
           .doc(bookingModel.bookingId)
           .set(bookingModel.toJson());
-      
-      // Note: Payment info is already stored in booking document
-      // No need for separate payment record to avoid permission issues
-      
+
       return bookingModel;
     } catch (e) {
       throw Exception('Failed to create booking: $e');
+    }
+  }
+
+  @override
+  Future<List<String>> getBookedSlots({
+    required DateTime date,
+    required String time,
+  }) async {
+    try {
+      final dateStr = date.toIso8601String().split('T').first;
+      // Query only by pickupTime to avoid composite-index requirement.
+      // Status and date are filtered client-side.
+      final snapshot = await _firestore
+          .collection(AppConstants.bookingsCollection)
+          .where('pickupTime', isEqualTo: time)
+          .get();
+
+      final booked = snapshot.docs
+          .where((doc) {
+            final data = doc.data();
+            // Exclude cancelled bookings
+            final status = data['status'] as String?;
+            if (status == AppConstants.statusCancelled) return false;
+            // Match the date
+            final pd = data['pickupDate'] as String?;
+            return pd != null && pd.startsWith(dateStr);
+          })
+          .map((doc) => doc.data()['selectedSlot'] as String?)
+          .whereType<String>()
+          .toList();
+
+      return booked;
+    } catch (e) {
+      throw Exception('Failed to fetch booked slots: $e');
     }
   }
   
@@ -224,15 +236,18 @@ class BookingDataSourceImpl implements BookingDataSource {
     required String bookingId,
     required DateTime newPickupDate,
     required String newPickupTime,
+    String? newSlot,
   }) async {
     try {
+      final updates = <String, dynamic>{
+        'pickupDate': newPickupDate.toIso8601String(),
+        'pickupTime': newPickupTime,
+        if (newSlot != null) 'selectedSlot': newSlot,
+      };
       await _firestore
           .collection(AppConstants.bookingsCollection)
           .doc(bookingId)
-          .update({
-            'pickupDate': newPickupDate.toIso8601String(),
-            'pickupTime': newPickupTime,
-          });
+          .update(updates);
     } catch (e) {
       throw Exception('Failed to reschedule pickup: $e');
     }

@@ -27,6 +27,12 @@ class BookingEntity {
   final String? specialInstructions;
   final DateTime createdAt;
   
+  // Slot-based booking field
+  final String? selectedSlot; // e.g. 'Slot 1' .. 'Slot 10'
+
+  // Customer display name (stored for admin visibility)
+  final String? customerName;
+
   // Legacy fields for backwards compatibility (deprecated)
   @Deprecated('Use categories instead')
   final String? category;
@@ -58,6 +64,8 @@ class BookingEntity {
     this.paymentMethod,
     this.specialInstructions,
     required this.createdAt,
+    this.selectedSlot,
+    this.customerName,
     this.category,
     this.serviceType,
     this.servicePrice,

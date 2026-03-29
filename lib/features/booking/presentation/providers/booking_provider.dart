@@ -36,6 +36,10 @@ final reschedulePickupUseCaseProvider = Provider<ReschedulePickupUseCase>((ref) 
   return ReschedulePickupUseCase(ref.read(bookingRepositoryProvider));
 });
 
+final getBookedSlotsUseCaseProvider = Provider<GetBookedSlotsUseCase>((ref) {
+  return GetBookedSlotsUseCase(ref.read(bookingRepositoryProvider));
+});
+
 // Booking State
 class BookingState {
   final bool isLoading;
@@ -72,6 +76,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
   final GetBookingByIdUseCase _getBookingByIdUseCase;
   final CancelBookingUseCase _cancelBookingUseCase;
   final ReschedulePickupUseCase _reschedulePickupUseCase;
+  final GetBookedSlotsUseCase _getBookedSlotsUseCase;
   
   BookingNotifier(
     this._createBookingUseCase,
@@ -79,6 +84,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
     this._getBookingByIdUseCase,
     this._cancelBookingUseCase,
     this._reschedulePickupUseCase,
+    this._getBookedSlotsUseCase,
   ) : super(const BookingState());
   
   Future<bool> createBooking({
@@ -92,6 +98,9 @@ class BookingNotifier extends StateNotifier<BookingState> {
     String? pickupTime,
     required String paymentMethod,
     String? specialInstructions,
+    String? selectedSlot,
+    double? totalAmount,
+    String? customerName,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
     
@@ -106,6 +115,9 @@ class BookingNotifier extends StateNotifier<BookingState> {
       pickupTime: pickupTime,
       paymentMethod: paymentMethod,
       specialInstructions: specialInstructions,
+      selectedSlot: selectedSlot,
+      totalAmount: totalAmount,
+      customerName: customerName,
     );
     
     return result.fold(
@@ -122,6 +134,18 @@ class BookingNotifier extends StateNotifier<BookingState> {
     );
   }
   
+  Future<List<String>> getAvailableSlots({
+    required DateTime date,
+    required String time,
+    required List<String> allSlots,
+  }) async {
+    final result = await _getBookedSlotsUseCase(date: date, time: time);
+    return result.fold(
+      (_) => allSlots, // on error, show all slots so user isn't blocked
+      (booked) => allSlots.where((s) => !booked.contains(s)).toList(),
+    );
+  }
+
   Future<void> getUserBookings(String userId) async {
     if (userId.isEmpty) {
       print('getUserBookings called with empty userId');
@@ -205,6 +229,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
     required String bookingId,
     required DateTime newPickupDate,
     required String newPickupTime,
+    String? newSlot,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
     
@@ -212,6 +237,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
       bookingId: bookingId,
       newPickupDate: newPickupDate,
       newPickupTime: newPickupTime,
+      newSlot: newSlot,
     );
     
     return result.fold(
@@ -244,6 +270,8 @@ class BookingNotifier extends StateNotifier<BookingState> {
               paymentMethod: booking.paymentMethod,
               specialInstructions: booking.specialInstructions,
               createdAt: booking.createdAt,
+              selectedSlot: newSlot ?? booking.selectedSlot,
+              customerName: booking.customerName,
             );
           }
           return booking;
@@ -264,5 +292,6 @@ final bookingProvider = StateNotifierProvider<BookingNotifier, BookingState>((re
     ref.read(getBookingByIdUseCaseProvider),
     ref.read(cancelBookingUseCaseProvider),
     ref.read(reschedulePickupUseCaseProvider),
+    ref.read(getBookedSlotsUseCaseProvider),
   );
 });

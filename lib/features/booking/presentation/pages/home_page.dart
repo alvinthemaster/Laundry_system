@@ -428,12 +428,30 @@ class _HomePageState extends ConsumerState<HomePage> {
                                                         overflow: TextOverflow.ellipsis,
                                                       ),
                                                       const SizedBox(height: 4),
-                                                      Text(
-                                                        '${booking.weight} kg',
-                                                        style: TextStyle(
-                                                          color: Colors.grey.shade600,
-                                                          fontSize: 13,
-                                                        ),
+                                                      Row(
+                                                        children: [
+                                                          const Icon(Icons.person_outline, size: 13, color: Colors.grey),
+                                                          const SizedBox(width: 4),
+                                                          Text(
+                                                            booking.customerName ?? 'Customer',
+                                                            style: TextStyle(
+                                                              color: Colors.grey.shade600,
+                                                              fontSize: 13,
+                                                            ),
+                                                          ),
+                                                          if (booking.selectedSlot != null) ...[
+                                                            const SizedBox(width: 8),
+                                                            const Icon(Icons.wash_outlined, size: 13, color: Colors.grey),
+                                                            const SizedBox(width: 2),
+                                                            Text(
+                                                              booking.selectedSlot!,
+                                                              style: TextStyle(
+                                                                color: Colors.grey.shade600,
+                                                                fontSize: 13,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ],
                                                       ),
                                                     ],
                                                   ),

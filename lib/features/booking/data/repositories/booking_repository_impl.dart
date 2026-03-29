@@ -21,6 +21,9 @@ class BookingRepositoryImpl implements BookingRepository {
     String? pickupTime,
     required String paymentMethod,
     String? specialInstructions,
+    String? selectedSlot,
+    double? totalAmount,
+    String? customerName,
   }) async {
     try {
       final booking = await dataSource.createBooking(
@@ -34,8 +37,24 @@ class BookingRepositoryImpl implements BookingRepository {
         pickupTime: pickupTime,
         paymentMethod: paymentMethod,
         specialInstructions: specialInstructions,
+        selectedSlot: selectedSlot,
+        totalAmount: totalAmount,
+        customerName: customerName,
       );
       return Either.right(booking);
+    } catch (e) {
+      return Either.left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, List<String>>> getBookedSlots({
+    required DateTime date,
+    required String time,
+  }) async {
+    try {
+      final slots = await dataSource.getBookedSlots(date: date, time: time);
+      return Either.right(slots);
     } catch (e) {
       return Either.left(ServerFailure(e.toString()));
     }
@@ -75,12 +94,14 @@ class BookingRepositoryImpl implements BookingRepository {
     required String bookingId,
     required DateTime newPickupDate,
     required String newPickupTime,
+    String? newSlot,
   }) async {
     try {
       await dataSource.reschedulePickup(
         bookingId: bookingId,
         newPickupDate: newPickupDate,
         newPickupTime: newPickupTime,
+        newSlot: newSlot,
       );
       return Either.right(null);
     } catch (e) {

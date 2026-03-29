@@ -15,6 +15,15 @@ abstract class BookingRepository {
     String? pickupTime,
     required String paymentMethod,
     String? specialInstructions,
+    String? selectedSlot,
+    double? totalAmount,
+    String? customerName,
+  });
+
+  // Get booked slots for a given date + time
+  Future<Either<Failure, List<String>>> getBookedSlots({
+    required DateTime date,
+    required String time,
   });
   
   // Get user bookings
@@ -31,5 +40,6 @@ abstract class BookingRepository {
     required String bookingId,
     required DateTime newPickupDate,
     required String newPickupTime,
+    String? newSlot,
   });
 }

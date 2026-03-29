@@ -19,6 +19,9 @@ class CreateBookingUseCase {
     String? pickupTime,
     required String paymentMethod,
     String? specialInstructions,
+    String? selectedSlot,
+    double? totalAmount,
+    String? customerName,
   }) {
     return repository.createBooking(
       userId: userId,
@@ -31,7 +34,23 @@ class CreateBookingUseCase {
       pickupTime: pickupTime,
       paymentMethod: paymentMethod,
       specialInstructions: specialInstructions,
+      selectedSlot: selectedSlot,
+      totalAmount: totalAmount,
+      customerName: customerName,
     );
+  }
+}
+
+class GetBookedSlotsUseCase {
+  final BookingRepository repository;
+
+  const GetBookedSlotsUseCase(this.repository);
+
+  Future<Either<dynamic, List<String>>> call({
+    required DateTime date,
+    required String time,
+  }) {
+    return repository.getBookedSlots(date: date, time: time);
   }
 }
 
@@ -73,11 +92,13 @@ class ReschedulePickupUseCase {
     required String bookingId,
     required DateTime newPickupDate,
     required String newPickupTime,
+    String? newSlot,
   }) {
     return _repository.reschedulePickup(
       bookingId: bookingId,
       newPickupDate: newPickupDate,
       newPickupTime: newPickupTime,
+      newSlot: newSlot,
     );
   }
 }

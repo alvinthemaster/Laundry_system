@@ -20,7 +20,7 @@ class AppConstants {
   static const String statusCancelled = 'Cancelled';
   
   // Payment Statuses
-  static const String paymentUnpaid = 'Unpaid';
+  static const String paymentUnpaid = 'Half Paid';
   static const String paymentPaid = 'Paid';
   
   // Payment Methods
@@ -69,4 +69,7 @@ class AppConstants {
   
   // Booking Fee (fixed)
   static const double bookingFee = 20.0;
+
+  // Slot rate (fixed per booking)
+  static const double slotRate = 50.0;
 }

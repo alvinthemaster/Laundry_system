@@ -13,32 +13,38 @@ class BookingRepositoryImpl implements BookingRepository {
   Future<Either<Failure, BookingEntity>> createBooking({
     required String userId,
     required List<Map<String, dynamic>> categories,
-    required List<String> selectedServices,
     required List<Map<String, dynamic>> selectedAddOns,
     required String bookingType,
     String? deliveryAddress,
     DateTime? pickupDate,
-    String? pickupTime,
+    String? timeSlot,
     required String paymentMethod,
     String? specialInstructions,
-    String? selectedSlot,
+    String? machineId,
+    String? machineName,
+    String? slotId,
     double? totalAmount,
+    double? slotFee,
+    double? deliveryFee,
     String? customerName,
   }) async {
     try {
       final booking = await dataSource.createBooking(
         userId: userId,
         categories: categories,
-        selectedServices: selectedServices,
         selectedAddOns: selectedAddOns,
         bookingType: bookingType,
         deliveryAddress: deliveryAddress,
         pickupDate: pickupDate,
-        pickupTime: pickupTime,
+        timeSlot: timeSlot,
         paymentMethod: paymentMethod,
         specialInstructions: specialInstructions,
-        selectedSlot: selectedSlot,
+        machineId: machineId,
+        machineName: machineName,
+        slotId: slotId,
         totalAmount: totalAmount,
+        slotFee: slotFee,
+        deliveryFee: deliveryFee,
         customerName: customerName,
       );
       return Either.right(booking);
@@ -93,14 +99,14 @@ class BookingRepositoryImpl implements BookingRepository {
   Future<Either<Failure, void>> reschedulePickup({
     required String bookingId,
     required DateTime newPickupDate,
-    required String newPickupTime,
+    required String newTimeSlot,
     String? newSlot,
   }) async {
     try {
       await dataSource.reschedulePickup(
         bookingId: bookingId,
         newPickupDate: newPickupDate,
-        newPickupTime: newPickupTime,
+        newTimeSlot: newTimeSlot,
         newSlot: newSlot,
       );
       return Either.right(null);

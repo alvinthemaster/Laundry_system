@@ -172,19 +172,15 @@ class BookingDetailsPage extends ConsumerWidget {
                     const SizedBox(height: 12),
                   ],
 
-                  _row(
-                    context,
-                    Icons.local_laundry_service,
-                    'Service Type',
-                    booking.selectedServices.isNotEmpty
-                        ? booking.selectedServices.join(', ')
-                        : (booking.serviceType ?? 'N/A'),
-                  ),
-                  const SizedBox(height: 12),
-
-                  _row(context, Icons.scale, 'Total Weight',
-                      '${booking.weight} kg'),
-                  const SizedBox(height: 12),
+                  if (booking.machineName != null) ...[                    
+                    _row(
+                      context,
+                      Icons.wash,
+                      'Machine',
+                      booking.machineName!,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
 
                   _row(context, Icons.shopping_bag, 'Booking Type',
                       booking.bookingType.toUpperCase()),
@@ -206,15 +202,15 @@ class BookingDetailsPage extends ConsumerWidget {
                     const SizedBox(height: 12),
                   ],
 
-                  if (booking.pickupTime != null) ...[
-                    _row(context, Icons.access_time, 'Pickup Time',
-                        booking.pickupTime!),
+if (booking.timeSlot != null) ...[                    
+                    _row(context, Icons.access_time, 'Time Slot',
+                        booking.timeSlot!),
                     const SizedBox(height: 12),
                   ],
 
-                  if (booking.selectedSlot != null) ...[
-                    _row(context, Icons.wash, 'Machine Slot',
-                        booking.selectedSlot!),
+                  if (booking.slotId != null) ...[                    
+                    _row(context, Icons.tag, 'Slot ID',
+                        booking.slotId!),
                     const SizedBox(height: 12),
                   ],
 
@@ -242,47 +238,35 @@ class BookingDetailsPage extends ConsumerWidget {
                     ),
                     child: Column(
                       children: [
-                        // Slot-based breakdown
-                        if (booking.selectedSlot != null) ...[
+                        // Slot fee row
+                        if (booking.slotFee > 0) ...[
                           _payRow(
                             'Slot Rate',
-                            AppUtils.formatCurrency(
-                              (booking.totalAmount -
-                                      booking.addOnsTotal -
-                                      booking.bookingFee)
-                                  .clamp(0.0, double.infinity),
-                            ),
+                            AppUtils.formatCurrency(booking.slotFee),
                           ),
-                          if (booking.addOnsTotal > 0) ...[
-                            const SizedBox(height: 4),
-                            ...booking.selectedAddOns.map(
-                              (addon) => Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: _payRow(
-                                  '  ${addon['name'] ?? ''}',
-                                  '+${AppUtils.formatCurrency((addon['price'] as num?)?.toDouble() ?? 0.0)}',
-                                ),
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 8),
-                          _payRow('Booking Fee',
-                              AppUtils.formatCurrency(booking.bookingFee)),
-                        ] else ...[
-                          // Legacy weight-based breakdown
-                          _payRow('Booking Fee',
-                              AppUtils.formatCurrency(booking.bookingFee)),
-                          const SizedBox(height: 8),
+                        ],
+                        if (booking.deliveryFee > 0) ...[
+                          const SizedBox(height: 4),
                           _payRow(
-                            'Service Charge (${booking.weight} kg)',
-                            AppUtils.formatCurrency(
-                              booking.servicesTotal > 0
-                                  ? booking.servicesTotal
-                                  : (booking.weight *
-                                      (booking.servicePrice ?? 0)),
+                            'Delivery Fee',
+                            AppUtils.formatCurrency(booking.deliveryFee),
+                          ),
+                        ],
+                        if (booking.addOnsTotal > 0) ...[
+                          const SizedBox(height: 4),
+                          ...booking.selectedAddOns.map(
+                            (addon) => Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: _payRow(
+                                '  ${addon['name'] ?? ''}',
+                                '+${AppUtils.formatCurrency((addon['price'] as num?)?.toDouble() ?? 0.0)}',
+                              ),
                             ),
                           ),
                         ],
+                        const SizedBox(height: 8),
+                        _payRow('Booking Fee',
+                            AppUtils.formatCurrency(booking.bookingFee)),
                         const Divider(height: 20),
                         Row(
                           mainAxisAlignment:
@@ -484,7 +468,7 @@ class _RescheduleDialogState extends ConsumerState<_RescheduleDialog> {
     final d = widget.booking.pickupDate;
     if (d == null) return 'Unknown';
     return '${DateFormat('MMM dd, yyyy').format(d)}'
-        ' at ${widget.booking.pickupTime ?? '—'}';
+        ' at ${widget.booking.timeSlot ?? '—'}';
   }
 
   Future<void> _pickDate() async {
@@ -573,7 +557,7 @@ class _RescheduleDialogState extends ConsumerState<_RescheduleDialog> {
         .reschedulePickup(
       bookingId: widget.booking.bookingId,
       newPickupDate: _newDate!,
-      newPickupTime: _newTime!.format(context),
+      newTimeSlot: _newTime!.format(context),
       newSlot: _selectedSlot,
     );
 

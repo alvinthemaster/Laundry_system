@@ -1,9 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:laundry_system/features/booking/data/datasources/booking_data_source.dart';
+import 'package:laundry_system/features/booking/data/datasources/machine_data_source.dart';
+import 'package:laundry_system/features/booking/data/models/machine_model.dart';
+import 'package:laundry_system/features/booking/data/models/machine_slot_model.dart';
 import 'package:laundry_system/features/booking/data/repositories/booking_repository_impl.dart';
 import 'package:laundry_system/features/booking/domain/entities/booking_entity.dart';
 import 'package:laundry_system/features/booking/domain/repositories/booking_repository.dart';
 import 'package:laundry_system/features/booking/domain/usecases/booking_usecases.dart';
+
+// Machine Data Source Provider
+final machineDataSourceProvider = Provider<MachineDataSource>((ref) {
+  return MachineDataSourceImpl();
+});
 
 // Data Source Provider
 final bookingDataSourceProvider = Provider<BookingDataSource>((ref) {
@@ -90,16 +98,19 @@ class BookingNotifier extends StateNotifier<BookingState> {
   Future<bool> createBooking({
     required String userId,
     required List<Map<String, dynamic>> categories,
-    required List<String> selectedServices,
     required List<Map<String, dynamic>> selectedAddOns,
     required String bookingType,
     String? deliveryAddress,
     DateTime? pickupDate,
-    String? pickupTime,
+    String? timeSlot,
     required String paymentMethod,
     String? specialInstructions,
-    String? selectedSlot,
+    String? machineId,
+    String? machineName,
+    String? slotId,
     double? totalAmount,
+    double? slotFee,
+    double? deliveryFee,
     String? customerName,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
@@ -107,16 +118,19 @@ class BookingNotifier extends StateNotifier<BookingState> {
     final result = await _createBookingUseCase(
       userId: userId,
       categories: categories,
-      selectedServices: selectedServices,
       selectedAddOns: selectedAddOns,
       bookingType: bookingType,
       deliveryAddress: deliveryAddress,
       pickupDate: pickupDate,
-      pickupTime: pickupTime,
+      timeSlot: timeSlot,
       paymentMethod: paymentMethod,
       specialInstructions: specialInstructions,
-      selectedSlot: selectedSlot,
+      machineId: machineId,
+      machineName: machineName,
+      slotId: slotId,
       totalAmount: totalAmount,
+      slotFee: slotFee,
+      deliveryFee: deliveryFee,
       customerName: customerName,
     );
     
@@ -198,22 +212,25 @@ class BookingNotifier extends StateNotifier<BookingState> {
               userId: booking.userId,
               categories: booking.categories,
               categoryTotal: booking.categoryTotal,
-              selectedServices: booking.selectedServices,
               selectedAddOns: booking.selectedAddOns,
-              weight: booking.weight,
-              servicesTotal: booking.servicesTotal,
               addOnsTotal: booking.addOnsTotal,
               bookingFee: booking.bookingFee,
               totalAmount: booking.totalAmount,
               bookingType: booking.bookingType,
               deliveryAddress: booking.deliveryAddress,
               pickupDate: booking.pickupDate,
-              pickupTime: booking.pickupTime,
+              timeSlot: booking.timeSlot,
               status: 'Cancelled',
               paymentStatus: booking.paymentStatus,
               paymentMethod: booking.paymentMethod,
               specialInstructions: booking.specialInstructions,
               createdAt: booking.createdAt,
+              machineId: booking.machineId,
+              machineName: booking.machineName,
+              slotId: booking.slotId,
+              slotFee: booking.slotFee,
+              deliveryFee: booking.deliveryFee,
+              customerName: booking.customerName,
             );
           }
           return booking;
@@ -228,7 +245,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
   Future<bool> reschedulePickup({
     required String bookingId,
     required DateTime newPickupDate,
-    required String newPickupTime,
+    required String newTimeSlot,
     String? newSlot,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
@@ -236,7 +253,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
     final result = await _reschedulePickupUseCase(
       bookingId: bookingId,
       newPickupDate: newPickupDate,
-      newPickupTime: newPickupTime,
+      newTimeSlot: newTimeSlot,
       newSlot: newSlot,
     );
     
@@ -254,23 +271,24 @@ class BookingNotifier extends StateNotifier<BookingState> {
               userId: booking.userId,
               categories: booking.categories,
               categoryTotal: booking.categoryTotal,
-              selectedServices: booking.selectedServices,
               selectedAddOns: booking.selectedAddOns,
-              weight: booking.weight,
-              servicesTotal: booking.servicesTotal,
               addOnsTotal: booking.addOnsTotal,
               bookingFee: booking.bookingFee,
               totalAmount: booking.totalAmount,
               bookingType: booking.bookingType,
               deliveryAddress: booking.deliveryAddress,
               pickupDate: newPickupDate,
-              pickupTime: newPickupTime,
+              timeSlot: newTimeSlot,
               status: booking.status,
               paymentStatus: booking.paymentStatus,
               paymentMethod: booking.paymentMethod,
               specialInstructions: booking.specialInstructions,
               createdAt: booking.createdAt,
-              selectedSlot: newSlot ?? booking.selectedSlot,
+              machineId: booking.machineId,
+              machineName: booking.machineName,
+              slotId: newSlot ?? booking.slotId,
+              slotFee: booking.slotFee,
+              deliveryFee: booking.deliveryFee,
               customerName: booking.customerName,
             );
           }
@@ -295,3 +313,32 @@ final bookingProvider = StateNotifierProvider<BookingNotifier, BookingState>((re
     ref.read(getBookedSlotsUseCaseProvider),
   );
 });
+
+// Machine Providers
+final machinesProvider = FutureProvider<List<MachineModel>>((ref) async {
+  final ds = ref.read(machineDataSourceProvider);
+  await ds.seedMachines(); // Ensure machines exist
+  return ds.getMachines();
+});
+
+final machinesByTypeProvider =
+    FutureProvider.family<List<MachineModel>, String>((ref, type) async {
+  final ds = ref.read(machineDataSourceProvider);
+  await ds.seedMachines();
+  return ds.getMachinesByType(type);
+});
+
+final slotsForDateProvider = StreamProvider.family<List<MachineSlotModel>, String>(
+  (ref, date) {
+    final ds = ref.read(machineDataSourceProvider);
+    return ds.watchSlotsForDate(date: date);
+  },
+);
+
+final slotsForDateAndTypeProvider =
+    StreamProvider.family<List<MachineSlotModel>, ({String date, String? machineType})>(
+  (ref, params) {
+    final ds = ref.read(machineDataSourceProvider);
+    return ds.watchSlotsForDate(date: params.date, machineType: params.machineType);
+  },
+);

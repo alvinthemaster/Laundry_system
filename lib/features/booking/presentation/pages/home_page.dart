@@ -5,7 +5,7 @@ import 'package:laundry_system/features/auth/presentation/pages/login_page.dart'
 import 'package:laundry_system/features/auth/presentation/pages/profile_page.dart';
 import 'package:laundry_system/features/auth/presentation/providers/auth_provider.dart';
 import 'package:laundry_system/features/booking/domain/entities/booking_entity.dart';
-import 'package:laundry_system/features/booking/presentation/pages/create_booking_page.dart';
+import 'package:laundry_system/features/booking/presentation/pages/multi_step_booking_page.dart';
 import 'package:laundry_system/features/booking/presentation/pages/booking_details_page.dart';
 import 'package:laundry_system/features/booking/presentation/providers/booking_provider.dart';
 import 'package:intl/intl.dart';
@@ -417,9 +417,13 @@ class _HomePageState extends ConsumerState<HomePage> {
                                                     crossAxisAlignment: CrossAxisAlignment.start,
                                                     children: [
                                                       Text(
-                                                        booking.selectedServices.isNotEmpty
-                                                            ? booking.selectedServices.join(', ')
-                                                            : (booking.serviceType ?? 'N/A'),
+                                                        booking.machineName != null
+                                                            ? booking.machineName!
+                                                            : booking.categories.isNotEmpty
+                                                                ? booking.categories
+                                                                    .map((c) => c['name'] as String? ?? '')
+                                                                    .join(', ')
+                                                                : 'Laundry Booking',
                                                         style: const TextStyle(
                                                           fontSize: 16,
                                                           fontWeight: FontWeight.bold,
@@ -439,12 +443,14 @@ class _HomePageState extends ConsumerState<HomePage> {
                                                               fontSize: 13,
                                                             ),
                                                           ),
-                                                          if (booking.selectedSlot != null) ...[
+                                                          if (booking.categories.isNotEmpty) ...[                                                            
                                                             const SizedBox(width: 8),
-                                                            const Icon(Icons.wash_outlined, size: 13, color: Colors.grey),
+                                                            const Icon(Icons.local_laundry_service, size: 13, color: Colors.grey),
                                                             const SizedBox(width: 2),
                                                             Text(
-                                                              booking.selectedSlot!,
+                                                              booking.categories
+                                                                  .map((c) => c['name'] as String? ?? '')
+                                                                  .join(', '),
                                                               style: TextStyle(
                                                                 color: Colors.grey.shade600,
                                                                 fontSize: 13,
@@ -572,8 +578,8 @@ class _HomePageState extends ConsumerState<HomePage> {
                                               ),
                                             ],
                                             
-                                            // Pickup Time (if available)
-                                            if (booking.pickupTime != null) ...[
+                                            // Time Slot (if available)
+                                            if (booking.timeSlot != null) ...[
                                               const SizedBox(width: 8),
                                               const Icon(
                                                 Icons.access_time,
@@ -583,7 +589,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                                               const SizedBox(width: 4),
                                               Flexible(
                                                 child: Text(
-                                                  booking.pickupTime!,
+                                                  booking.timeSlot!,
                                                   style: TextStyle(
                                                     color: Colors.grey.shade700,
                                                     fontSize: 12,
@@ -656,7 +662,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
           final result = await Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const CreateBookingPage()),
+            MaterialPageRoute(builder: (_) => const MultiStepBookingPage()),
           );
           
           // Refresh bookings if a new booking was created

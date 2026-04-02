@@ -6,6 +6,8 @@ class AppConstants {
   // Firebase Collections
   static const String usersCollection = 'users';
   static const String bookingsCollection = 'bookings';
+  static const String machinesCollection = 'machines';
+  static const String machineSlotsCollection = 'machine_slots';
   
   // User Roles
   static const String roleCustomer = 'customer';
@@ -70,6 +72,24 @@ class AppConstants {
   // Booking Fee (fixed)
   static const double bookingFee = 20.0;
 
-  // Slot rate (fixed per booking)
+  // Slot rate (fixed per slot)
   static const double slotRate = 50.0;
+
+  // Delivery fee (fixed)
+  static const double deliveryFee = 30.0;
+
+  // Machine Types
+  static const String machineTypeWash = 'wash';
+  static const String machineTypeDry = 'dry';
+  static const String machineTypeWashDry = 'wash_dry';
+
+  // Machine Statuses
+  static const String machineStatusAvailable = 'available';
+  static const String machineStatusMaintenance = 'maintenance';
+
+  // Slot Statuses
+  static const String slotAvailable = 'available';
+  static const String slotBooked = 'booked';
+  static const String slotInUse = 'in_use';
+  static const String slotMaintenance = 'maintenance';
 }

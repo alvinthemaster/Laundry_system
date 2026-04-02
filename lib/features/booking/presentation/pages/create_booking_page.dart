@@ -255,20 +255,19 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
       categories: _selectedCategories
           .map((n) => <String, dynamic>{'name': n})
           .toList(),
-      selectedServices: _selectedServices.toList(),
-      selectedAddOns: addOnsList,
+            selectedAddOns: addOnsList,
       bookingType: _bookingType,
       deliveryAddress:
           _isDelivery ? _deliveryAddressController.text.trim() : null,
       // Store schedule date/time as pickupDate/pickupTime so that
       // getBookedSlots can query conflicts for both booking types.
       pickupDate: _scheduleDate,
-      pickupTime: _scheduleTime?.format(context),
+      timeSlot: _scheduleTime?.format(context),
       paymentMethod: paymentMethod,
       specialInstructions: _instructionsController.text.trim().isEmpty
           ? null
           : _instructionsController.text.trim(),
-      selectedSlot: _selectedSlot,
+      slotId: _selectedSlot,
       totalAmount: _grandTotal,
       customerName: user.fullName,
     );

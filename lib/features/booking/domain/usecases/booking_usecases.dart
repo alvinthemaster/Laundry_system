@@ -11,31 +11,37 @@ class CreateBookingUseCase {
   Future<Either<dynamic, BookingEntity>> call({
     required String userId,
     required List<Map<String, dynamic>> categories,
-    required List<String> selectedServices,
     required List<Map<String, dynamic>> selectedAddOns,
     required String bookingType,
     String? deliveryAddress,
     DateTime? pickupDate,
-    String? pickupTime,
+    String? timeSlot,
     required String paymentMethod,
     String? specialInstructions,
-    String? selectedSlot,
+    String? machineId,
+    String? machineName,
+    String? slotId,
     double? totalAmount,
+    double? slotFee,
+    double? deliveryFee,
     String? customerName,
   }) {
     return repository.createBooking(
       userId: userId,
       categories: categories,
-      selectedServices: selectedServices,
       selectedAddOns: selectedAddOns,
       bookingType: bookingType,
       deliveryAddress: deliveryAddress,
       pickupDate: pickupDate,
-      pickupTime: pickupTime,
+      timeSlot: timeSlot,
       paymentMethod: paymentMethod,
       specialInstructions: specialInstructions,
-      selectedSlot: selectedSlot,
+      machineId: machineId,
+      machineName: machineName,
+      slotId: slotId,
       totalAmount: totalAmount,
+      slotFee: slotFee,
+      deliveryFee: deliveryFee,
       customerName: customerName,
     );
   }
@@ -91,13 +97,13 @@ class ReschedulePickupUseCase {
   Future<Either<Failure, void>> call({
     required String bookingId,
     required DateTime newPickupDate,
-    required String newPickupTime,
+    required String newTimeSlot,
     String? newSlot,
   }) {
     return _repository.reschedulePickup(
       bookingId: bookingId,
       newPickupDate: newPickupDate,
-      newPickupTime: newPickupTime,
+      newTimeSlot: newTimeSlot,
       newSlot: newSlot,
     );
   }

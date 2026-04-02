@@ -7,16 +7,19 @@ abstract class BookingRepository {
   Future<Either<Failure, BookingEntity>> createBooking({
     required String userId,
     required List<Map<String, dynamic>> categories,
-    required List<String> selectedServices,
     required List<Map<String, dynamic>> selectedAddOns,
     required String bookingType,
     String? deliveryAddress,
     DateTime? pickupDate,
-    String? pickupTime,
+    String? timeSlot,
     required String paymentMethod,
     String? specialInstructions,
-    String? selectedSlot,
+    String? machineId,
+    String? machineName,
+    String? slotId,
     double? totalAmount,
+    double? slotFee,
+    double? deliveryFee,
     String? customerName,
   });
 
@@ -39,7 +42,7 @@ abstract class BookingRepository {
   Future<Either<Failure, void>> reschedulePickup({
     required String bookingId,
     required DateTime newPickupDate,
-    required String newPickupTime,
+    required String newTimeSlot,
     String? newSlot,
   });
 }

@@ -7,19 +7,22 @@ abstract class BookingDataSource {
   Future<BookingModel> createBooking({
     required String userId,
     required List<Map<String, dynamic>> categories,
-    required List<String> selectedServices,
     required List<Map<String, dynamic>> selectedAddOns,
     required String bookingType,
     String? deliveryAddress,
     DateTime? pickupDate,
-    String? pickupTime,
+    String? timeSlot,
     required String paymentMethod,
     String? specialInstructions,
-    String? selectedSlot,
+    String? machineId,
+    String? machineName,
+    String? slotId,
     double? totalAmount,
+    double? slotFee,
+    double? deliveryFee,
     String? customerName,
   });
-  
+
   Future<List<String>> getBookedSlots({
     required DateTime date,
     required String time,
@@ -31,7 +34,7 @@ abstract class BookingDataSource {
   Future<void> reschedulePickup({
     required String bookingId,
     required DateTime newPickupDate,
-    required String newPickupTime,
+    required String newTimeSlot,
     String? newSlot,
   });
   Future<void> createPaymentRecord({
@@ -56,24 +59,24 @@ class BookingDataSourceImpl implements BookingDataSource {
   Future<BookingModel> createBooking({
     required String userId,
     required List<Map<String, dynamic>> categories,
-    required List<String> selectedServices,
     required List<Map<String, dynamic>> selectedAddOns,
     required String bookingType,
     String? deliveryAddress,
     DateTime? pickupDate,
-    String? pickupTime,
+    String? timeSlot,
     required String paymentMethod,
     String? specialInstructions,
-    String? selectedSlot,
+    String? machineId,
+    String? machineName,
+    String? slotId,
     double? totalAmount,
+    double? slotFee,
+    double? deliveryFee,
     String? customerName,
   }) async {
     try {
-      // Fixed slot-based pricing: always ₱50 per booking
-      const fixedTotal = 50.0;
-      final resolvedTotal = totalAmount ?? fixedTotal;
+      final resolvedTotal = totalAmount ?? AppConstants.bookingFee;
 
-      // Determine payment status
       final paymentStatus = paymentMethod == AppConstants.paymentGCash
           ? AppConstants.paymentPaid
           : AppConstants.paymentUnpaid;
@@ -89,33 +92,63 @@ class BookingDataSourceImpl implements BookingDataSource {
         userId: userId,
         categories: categories,
         categoryTotal: 0.0,
-        selectedServices: selectedServices,
         selectedAddOns: selectedAddOns,
-        weight: 0.0,
-        servicesTotal: 0.0,
         addOnsTotal: addOnsTotal,
         bookingFee: AppConstants.bookingFee,
         totalAmount: resolvedTotal,
         bookingType: bookingType,
         deliveryAddress: deliveryAddress,
         pickupDate: pickupDate,
-        pickupTime: pickupTime,
+        timeSlot: timeSlot,
         status: AppConstants.statusConfirmed,
         paymentStatus: paymentStatus,
         paymentMethod: paymentMethod,
         specialInstructions: specialInstructions,
         createdAt: DateTime.now(),
-        selectedSlot: selectedSlot,
+        machineId: machineId,
+        machineName: machineName,
+        slotId: slotId,
+        slotFee: slotFee ?? 0.0,
+        deliveryFee: deliveryFee ?? 0.0,
         customerName: customerName,
       );
 
-      await _firestore
+      final bookingRef = _firestore
           .collection(AppConstants.bookingsCollection)
-          .doc(bookingModel.bookingId)
-          .set(bookingModel.toJson());
+          .doc(bookingId);
+
+      if (slotId != null && slotId.isNotEmpty) {
+        // Atomic transaction: verify slot is still available, then lock it
+        // and write the booking in a single operation to prevent double booking.
+        await _firestore.runTransaction<void>((tx) async {
+          final slotRef =
+              _firestore.collection('machine_slots').doc(slotId);
+          final slotSnap = await tx.get(slotRef);
+
+          if (!slotSnap.exists ||
+              !(slotSnap.data()?['isAvailable'] as bool? ?? false)) {
+            throw Exception(
+                'SLOT_UNAVAILABLE: This time slot has just been taken. Please select another.');
+          }
+
+          // Lock the slot atomically with the booking write.
+          tx.update(slotRef, {
+            'isAvailable': false,
+            'status': 'booked',
+            'bookingId': bookingId,
+            'bookedAt': DateTime.now().toIso8601String(),
+          });
+          tx.set(bookingRef, bookingModel.toJson());
+        });
+      } else {
+        // No slot involved — plain write.
+        await bookingRef.set(bookingModel.toJson());
+      }
 
       return bookingModel;
     } catch (e) {
+      // Re-throw SLOT_UNAVAILABLE so callers can show a specific message.
+      if (e.toString().contains('SLOT_UNAVAILABLE')) rethrow;
       throw Exception('Failed to create booking: $e');
     }
   }
@@ -131,20 +164,18 @@ class BookingDataSourceImpl implements BookingDataSource {
       // Status and date are filtered client-side.
       final snapshot = await _firestore
           .collection(AppConstants.bookingsCollection)
-          .where('pickupTime', isEqualTo: time)
+          .where('timeSlot', isEqualTo: time)
           .get();
 
       final booked = snapshot.docs
           .where((doc) {
             final data = doc.data();
-            // Exclude cancelled bookings
             final status = data['status'] as String?;
             if (status == AppConstants.statusCancelled) return false;
-            // Match the date
             final pd = data['pickupDate'] as String?;
             return pd != null && pd.startsWith(dateStr);
           })
-          .map((doc) => doc.data()['selectedSlot'] as String?)
+          .map((doc) => doc.data()['slotId'] as String?)
           .whereType<String>()
           .toList();
 
@@ -222,10 +253,32 @@ class BookingDataSourceImpl implements BookingDataSource {
   @override
   Future<void> cancelBooking(String bookingId) async {
     try {
-      await _firestore
+      // Read the booking first to get slotId (outside the transaction).
+      final bookingSnap = await _firestore
           .collection(AppConstants.bookingsCollection)
           .doc(bookingId)
-          .update({'status': AppConstants.statusCancelled});
+          .get();
+      final slotId = bookingSnap.data()?['slotId'] as String?;
+
+      await _firestore.runTransaction<void>((tx) async {
+        final bookingRef = _firestore
+            .collection(AppConstants.bookingsCollection)
+            .doc(bookingId);
+
+        tx.update(bookingRef, {'status': AppConstants.statusCancelled});
+
+        // Release the time slot so it becomes bookable again.
+        if (slotId != null && slotId.isNotEmpty) {
+          final slotRef =
+              _firestore.collection('machine_slots').doc(slotId);
+          tx.update(slotRef, {
+            'isAvailable': true,
+            'status': 'available',
+            'bookingId': FieldValue.delete(),
+            'bookedAt': FieldValue.delete(),
+          });
+        }
+      });
     } catch (e) {
       throw Exception('Failed to cancel booking: $e');
     }
@@ -235,14 +288,14 @@ class BookingDataSourceImpl implements BookingDataSource {
   Future<void> reschedulePickup({
     required String bookingId,
     required DateTime newPickupDate,
-    required String newPickupTime,
+    required String newTimeSlot,
     String? newSlot,
   }) async {
     try {
       final updates = <String, dynamic>{
         'pickupDate': newPickupDate.toIso8601String(),
-        'pickupTime': newPickupTime,
-        if (newSlot != null) 'selectedSlot': newSlot,
+        'timeSlot': newTimeSlot,
+        if (newSlot != null) 'slotId': newSlot,
       };
       await _firestore
           .collection(AppConstants.bookingsCollection)

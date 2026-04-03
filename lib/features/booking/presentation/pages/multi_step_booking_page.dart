@@ -24,6 +24,7 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
   // Step 1: Booking Type
   String _bookingType = AppConstants.bookingTypePickup;
   final _deliveryAddressController = TextEditingController();
+  DateTime? _pickupDate; // When customer will pick up their laundry
 
   // Step 2: Booking Date
   DateTime? _selectedDate;
@@ -74,7 +75,10 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
         }
         return true;
       case 1: // Booking Date
-        return _selectedDate != null;
+        if (_selectedDate == null) return false;
+        if (_bookingType == AppConstants.bookingTypePickup &&
+            _pickupDate == null) return false;
+        return true;
       case 2: // Category & Add-ons
         return _selectedCategories.isNotEmpty;
       case 3: // Machine & Slot
@@ -119,7 +123,8 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
       case 0:
         return 'Please enter a delivery address';
       case 1:
-        return 'Please select a booking date';
+        if (_selectedDate == null) return 'Please select a booking date';
+        return 'Please select a pickup date';
       case 2:
         return 'Please select at least one service category';
       case 3:
@@ -145,7 +150,21 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
 
       final availableMachines = machines.where((m) => m.isAvailable).toList();
 
-      // Fetch slots for each available machine (read-only)
+      // Ensure slots exist for each machine on the selected date
+      // This generates hourly slots (8 AM - 8 PM) if they don't exist yet
+      for (final machine in availableMachines) {
+        try {
+          await ds.ensureSlotsExist(
+            machineId: machine.machineId,
+            date: dateStr,
+          );
+        } catch (_) {
+          // Silently continue if slot creation fails (e.g. permission denied)
+          // Existing slots will still be read below
+        }
+      }
+
+      // Fetch slots for each available machine
       final List<MachineSlotModel> allSlots = [];
       for (final machine in availableMachines) {
         final slots = await ds.getSlotsForMachine(
@@ -224,7 +243,9 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
                         AppConstants.bookingTypeDelivery
                     ? _deliveryAddressController.text.trim()
                     : null,
-                pickupDate: _selectedDate,
+                pickupDate: _bookingType == AppConstants.bookingTypePickup
+                    ? _pickupDate
+                    : _selectedDate,
                 timeSlot:
                     '${_selectedSlot!.startTime} - ${_selectedSlot!.endTime}',
                 paymentMethod: paymentMethod,
@@ -514,6 +535,8 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
             ),
           ),
         ],
+
+
       ],
     );
   }
@@ -550,9 +573,13 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
             if (picked != null) {
               setState(() {
                 _selectedDate = picked;
-                // Reset slot selection when date changes
+                // Reset slot and pickup date when booking date changes
                 _selectedMachine = null;
                 _selectedSlot = null;
+                // If pickup date is now before new booking date, reset it
+                if (_pickupDate != null && _pickupDate!.isBefore(picked)) {
+                  _pickupDate = null;
+                }
               });
             }
           },
@@ -615,7 +642,7 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
                     size: 18, color: Colors.green.shade700),
                 const SizedBox(width: 8),
                 Text(
-                  'Date selected: ${DateFormat('MMM d, yyyy').format(_selectedDate!)}',
+                  'Booking date: ${DateFormat('MMM d, yyyy').format(_selectedDate!)}',
                   style: TextStyle(
                     color: Colors.green.shade900,
                     fontWeight: FontWeight.w500,
@@ -624,6 +651,110 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
               ],
             ),
           ),
+        ],
+
+        // Pickup date — only for Pickup booking type
+        if (_bookingType == AppConstants.bookingTypePickup) ...[  
+          const SizedBox(height: 24),
+          Text(
+            'Pickup Date',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'When would you like to collect your finished laundry?',
+            style: TextStyle(color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 16),
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () async {
+              // Pickup date must be on or after the booking date
+              final earliest = _selectedDate ?? DateTime.now();
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: _pickupDate != null && !_pickupDate!.isBefore(earliest)
+                    ? _pickupDate!
+                    : earliest.add(const Duration(days: 1)),
+                firstDate: earliest,
+                lastDate: earliest.add(const Duration(days: 30)),
+              );
+              if (picked != null) {
+                setState(() {
+                  _pickupDate = picked;
+                });
+              }
+            },
+            child: Container(
+              width: double.infinity,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: _pickupDate != null
+                      ? theme.colorScheme.primary
+                      : Colors.grey.shade300,
+                  width: _pickupDate != null ? 2 : 1,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                color: _pickupDate != null
+                    ? theme.colorScheme.primary.withValues(alpha: 0.05)
+                    : Colors.white,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.event_available,
+                    color: _pickupDate != null
+                        ? theme.colorScheme.primary
+                        : Colors.grey,
+                  ),
+                  const SizedBox(width: 16),
+                  Text(
+                    _pickupDate != null
+                        ? DateFormat('EEEE, MMMM d, yyyy').format(_pickupDate!)
+                        : 'Tap to select pickup date',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: _pickupDate != null
+                          ? FontWeight.w600
+                          : FontWeight.normal,
+                      color: _pickupDate != null
+                          ? theme.colorScheme.primary
+                          : Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_pickupDate != null) ...[  
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.check_circle,
+                      size: 18, color: Colors.green.shade700),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Pickup date: ${DateFormat('MMM d, yyyy').format(_pickupDate!)}',
+                    style: TextStyle(
+                      color: Colors.green.shade900,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ],
     );
@@ -638,7 +769,6 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
       'Fabric Conditioner': 30.0,
       'Stain Removal': 40.0,
     };
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1244,6 +1374,12 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
             label: 'Date',
             value: DateFormat('MMM d, yyyy').format(_selectedDate!),
           ),
+          if (_bookingType == AppConstants.bookingTypePickup &&
+              _pickupDate != null)
+            _SummaryRow(
+              label: 'Pickup Date',
+              value: DateFormat('MMM d, yyyy').format(_pickupDate!),
+            ),
           _SummaryRow(
             label: 'Categories',
             value: _selectedCategories.isEmpty

@@ -235,6 +235,7 @@ class MachineDataSourceImpl implements MachineDataSource {
   }) async {
     try {
       // Check if slots already exist for this machine + date
+      // First try string-based date query
       final existing = await _firestore
           .collection('machine_slots')
           .where('machineId', isEqualTo: machineId)
@@ -242,7 +243,30 @@ class MachineDataSourceImpl implements MachineDataSource {
           .limit(1)
           .get();
 
-      if (existing.docs.isNotEmpty) return; // Slots already generated
+      if (existing.docs.isNotEmpty) return; // Slots already generated (string date)
+
+      // Also check via machineId-only query and client-side date filter
+      // This handles Timestamp-stored dates that won't match string queries
+      final byMachine = await _firestore
+          .collection('machine_slots')
+          .where('machineId', isEqualTo: machineId)
+          .get();
+      final hasMatchingSlots = byMachine.docs.any((doc) {
+        final rawDate = (doc.data())['date'];
+        String slotDate;
+        if (rawDate is Timestamp) {
+          final dt = rawDate.toDate().toLocal();
+          slotDate =
+              '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+        } else if (rawDate is String) {
+          slotDate = rawDate;
+        } else {
+          slotDate = '';
+        }
+        return slotDate == date;
+      });
+
+      if (hasMatchingSlots) return; // Slots exist with Timestamp date
 
       // Generate hourly slots for the operating hours
       final batch = _firestore.batch();

@@ -280,7 +280,11 @@ if (booking.timeSlot != null) ...[
                                         fontWeight: FontWeight.bold)),
                             Text(
                               AppUtils.formatCurrency(
-                                  booking.totalAmount),
+                                booking.slotFee +
+                                booking.deliveryFee +
+                                booking.addOnsTotal +
+                                booking.bookingFee,
+                              ),
                               style: Theme.of(context)
                                   .textTheme
                                   .titleLarge

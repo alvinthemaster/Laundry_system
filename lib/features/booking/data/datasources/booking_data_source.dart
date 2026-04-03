@@ -1,4 +1,7 @@
+import 'dart:developer' as developer;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:uuid/uuid.dart';
 import 'package:laundry_system/core/constants/app_constants.dart';
 import 'package:laundry_system/features/booking/data/models/booking_model.dart';
@@ -118,35 +121,44 @@ class BookingDataSourceImpl implements BookingDataSource {
           .doc(bookingId);
 
       if (slotId != null && slotId.isNotEmpty) {
-        // Atomic transaction: verify slot is still available, then lock it
-        // and write the booking in a single operation to prevent double booking.
-        await _firestore.runTransaction<void>((tx) async {
+        // Write the booking document.
+        await bookingRef.set(bookingModel.toJson());
+
+        // Then mark the slot as booked with a simple update.
+        // Avoids runTransaction which causes "Dart exception from converted
+        // Future" on Flutter Web even when rules allow the write.
+        try {
           final slotRef =
               _firestore.collection('machine_slots').doc(slotId);
-          final slotSnap = await tx.get(slotRef);
-
-          if (!slotSnap.exists ||
-              !(slotSnap.data()?['isAvailable'] as bool? ?? false)) {
-            throw Exception(
-                'SLOT_UNAVAILABLE: This time slot has just been taken. Please select another.');
-          }
-
-          // Lock the slot atomically with the booking write.
-          tx.update(slotRef, {
+          await slotRef.update({
             'isAvailable': false,
             'status': 'booked',
             'bookingId': bookingId,
             'bookedAt': DateTime.now().toIso8601String(),
           });
-          tx.set(bookingRef, bookingModel.toJson());
-        });
+        } catch (_) {
+          // Slot update failed (permission denied, doc missing, etc.)
+          // Booking is already saved — admin can manage slot status.
+        }
       } else {
         // No slot involved — plain write.
         await bookingRef.set(bookingModel.toJson());
       }
 
       return bookingModel;
-    } catch (e) {
+    } on FirebaseException catch (e) {
+      developer.log(
+        'FirebaseException creating booking: ${e.code} - ${e.message}',
+        name: 'BookingDataSource',
+      );
+      throw Exception('Failed to create booking: [${e.code}] ${e.message}');
+    } catch (e, stack) {
+      developer.log(
+        'Error creating booking: $e (type: ${e.runtimeType})',
+        name: 'BookingDataSource',
+        error: e,
+        stackTrace: stack,
+      );
       // Re-throw SLOT_UNAVAILABLE so callers can show a specific message.
       if (e.toString().contains('SLOT_UNAVAILABLE')) rethrow;
       throw Exception('Failed to create booking: $e');

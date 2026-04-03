@@ -8,6 +8,7 @@ class AppConstants {
   static const String bookingsCollection = 'bookings';
   static const String machinesCollection = 'machines';
   static const String machineSlotsCollection = 'machine_slots';
+  static const String receiptsCollection = 'receipts';
   
   // User Roles
   static const String roleCustomer = 'customer';

@@ -14,7 +14,8 @@ class BookingEntity {
   final String? deliveryAddress;
 
   final DateTime? pickupDate;
-  final String? timeSlot; // e.g. "08:00 - 09:00"
+  final String? timeSlot;    // machine slot time (original, never changed)
+  final String? pickupTime;  // customer-selected pickup time (set on reschedule)
 
   final String status;
   final String paymentStatus;
@@ -45,6 +46,7 @@ class BookingEntity {
     this.deliveryAddress,
     this.pickupDate,
     this.timeSlot,
+    this.pickupTime,
     required this.status,
     required this.paymentStatus,
     this.paymentMethod,

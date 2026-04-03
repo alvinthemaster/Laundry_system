@@ -245,16 +245,18 @@ class BookingNotifier extends StateNotifier<BookingState> {
   Future<bool> reschedulePickup({
     required String bookingId,
     required DateTime newPickupDate,
-    required String newTimeSlot,
+    required String newPickupTime,
     String? newSlot,
+    String? oldSlotId,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
     
     final result = await _reschedulePickupUseCase(
       bookingId: bookingId,
       newPickupDate: newPickupDate,
-      newTimeSlot: newTimeSlot,
+      newPickupTime: newPickupTime,
       newSlot: newSlot,
+      oldSlotId: oldSlotId,
     );
     
     return result.fold(
@@ -263,7 +265,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
         return false;
       },
       (_) {
-        // Update booking in list
+        // Update booking in list — keep timeSlot unchanged, update pickupDate + pickupTime
         final updatedBookings = state.bookings.map((booking) {
           if (booking.bookingId == bookingId) {
             return BookingEntity(
@@ -278,7 +280,8 @@ class BookingNotifier extends StateNotifier<BookingState> {
               bookingType: booking.bookingType,
               deliveryAddress: booking.deliveryAddress,
               pickupDate: newPickupDate,
-              timeSlot: newTimeSlot,
+              timeSlot: booking.timeSlot, // unchanged
+              pickupTime: newPickupTime,
               status: booking.status,
               paymentStatus: booking.paymentStatus,
               paymentMethod: booking.paymentMethod,

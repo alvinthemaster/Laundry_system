@@ -97,14 +97,16 @@ class ReschedulePickupUseCase {
   Future<Either<Failure, void>> call({
     required String bookingId,
     required DateTime newPickupDate,
-    required String newTimeSlot,
+    required String newPickupTime,
     String? newSlot,
+    String? oldSlotId,
   }) {
     return _repository.reschedulePickup(
       bookingId: bookingId,
       newPickupDate: newPickupDate,
-      newTimeSlot: newTimeSlot,
+      newPickupTime: newPickupTime,
       newSlot: newSlot,
+      oldSlotId: oldSlotId,
     );
   }
 }

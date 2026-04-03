@@ -1,4 +1,5 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:laundry_system/core/utils/app_utils.dart';
 import 'package:laundry_system/features/booking/domain/entities/booking_entity.dart';
@@ -342,23 +343,41 @@ if (booking.timeSlot != null) ...[
                       booking.bookingType == 'pickup' &&
                       booking.pickupDate != null) ...[
                     const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () => showDialog<void>(
-                          context: context,
-                          barrierDismissible: false,
-                          builder: (_) =>
-                              _RescheduleDialog(booking: booking),
-                        ),
-                        icon: const Icon(Icons.schedule),
-                        label: const Text('Reschedule Pickup'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    ),
+                    Builder(builder: (ctx) {
+                      final windowExpired = DateTime.now().isAfter(
+                          booking.createdAt.add(const Duration(hours: 24)));
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: windowExpired
+                                ? null
+                                : () => showDialog<void>(
+                                      context: ctx,
+                                      barrierDismissible: false,
+                                      builder: (_) =>
+                                          _RescheduleDialog(booking: booking),
+                                    ),
+                            icon: const Icon(Icons.schedule),
+                            label: const Text('Reschedule Pickup'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor:
+                                  windowExpired ? Colors.grey.shade400 : Colors.blue,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                          if (windowExpired) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              'Rescheduling is only allowed within 24 hours of booking.',
+                              style: TextStyle(
+                                  color: Colors.red.shade600, fontSize: 12),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ],
+                      );
+                    }),
                   ],
 
                   // Cancel button
@@ -451,21 +470,42 @@ class _RescheduleDialog extends ConsumerStatefulWidget {
 }
 
 class _RescheduleDialogState extends ConsumerState<_RescheduleDialog> {
-  static const int _totalSlots = 10;
-  final List<String> _allSlots =
-      List.generate(10, (i) => 'Slot ${i + 1}');
-
   DateTime? _newDate;
   TimeOfDay? _newTime;
-  List<String> _availableSlots = [];
-  String? _selectedSlot;
-  bool _isLoadingSlots = false;
   bool _isSubmitting = false;
+  Timer? _timer;
 
-  bool get _isWithin24h {
-    final d = widget.booking.pickupDate;
-    if (d == null) return false;
-    return d.difference(DateTime.now()).inHours < 24;
+  @override
+  void initState() {
+    super.initState();
+    // Refresh every second so the countdown updates live
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  /// True when the 24-hour reschedule window (from booking creation) has closed.
+  bool get _windowExpired => DateTime.now().isAfter(
+      widget.booking.createdAt.add(const Duration(hours: 24)));
+
+  /// Remaining time in the reschedule window.
+  Duration get _remaining => widget.booking.createdAt
+      .add(const Duration(hours: 24))
+      .difference(DateTime.now());
+
+  String get _countdownText {
+    if (_windowExpired) return 'Expired';
+    final d = _remaining;
+    final h = d.inHours.toString().padLeft(2, '0');
+    final m = (d.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$h:$m:$s remaining';
   }
 
   String get _currentSchedule {
@@ -476,19 +516,18 @@ class _RescheduleDialogState extends ConsumerState<_RescheduleDialog> {
   }
 
   Future<void> _pickDate() async {
+    final now = DateTime.now();
+    // New date must be at least 1 day ahead (no same-day or past)
+    final earliest =
+        DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
     final picked = await showDatePicker(
       context: context,
-      initialDate: _newDate ?? DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now().add(const Duration(days: 1)),
-      lastDate: DateTime.now().add(const Duration(days: 30)),
+      initialDate: _newDate ?? earliest,
+      firstDate: earliest,
+      lastDate: now.add(const Duration(days: 30)),
     );
     if (picked != null && mounted) {
-      setState(() {
-        _newDate = picked;
-        _selectedSlot = null;
-        _availableSlots = [];
-      });
-      await _loadSlots();
+      setState(() => _newDate = picked);
     }
   }
 
@@ -498,71 +537,44 @@ class _RescheduleDialogState extends ConsumerState<_RescheduleDialog> {
       initialTime: _newTime ?? const TimeOfDay(hour: 9, minute: 0),
     );
     if (picked != null && mounted) {
-      setState(() {
-        _newTime = picked;
-        _selectedSlot = null;
-        _availableSlots = [];
-      });
-      await _loadSlots();
-    }
-  }
-
-  Future<void> _loadSlots() async {
-    if (_newDate == null || _newTime == null) return;
-    setState(() => _isLoadingSlots = true);
-    try {
-      final slots =
-          await ref.read(bookingProvider.notifier).getAvailableSlots(
-        date: _newDate!,
-        time: _newTime!.format(context),
-        allSlots: _allSlots,
-      );
-      if (!mounted) return;
-      setState(() {
-        _availableSlots = slots;
-        if (_selectedSlot != null && !slots.contains(_selectedSlot)) {
-          _selectedSlot = null;
-        }
-      });
-    } catch (_) {
-      if (mounted) setState(() => _availableSlots = []);
-    } finally {
-      if (mounted) setState(() => _isLoadingSlots = false);
+      setState(() => _newTime = picked);
     }
   }
 
   Future<void> _confirm() async {
-    if (_newDate == null || _newTime == null || _selectedSlot == null) return;
-    setState(() => _isSubmitting = true);
+    if (_newDate == null || _newTime == null) return;
 
-    // Re-validate slot availability right before submitting
-    final fresh =
-        await ref.read(bookingProvider.notifier).getAvailableSlots(
-      date: _newDate!,
-      time: _newTime!.format(context),
-      allSlots: _allSlots,
-    );
-    if (!mounted) return;
-
-    if (!fresh.contains(_selectedSlot)) {
-      setState(() {
-        _isSubmitting = false;
-        _availableSlots = fresh;
-        _selectedSlot = null;
-      });
+    // Final guard: window may have expired while the dialog was open
+    if (_windowExpired) {
       AppUtils.showSnackBar(
-          context, 'That slot was just taken. Please choose another.',
-          isError: true);
+        context,
+        'Rescheduling is only allowed within 24 hours of booking.',
+        isError: true,
+      );
       return;
     }
 
-    final success = await ref
-        .read(bookingProvider.notifier)
-        .reschedulePickup(
+    // 1-day buffer: new date must be strictly after today
+    final today = DateTime(
+        DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    final newDateOnly =
+        DateTime(_newDate!.year, _newDate!.month, _newDate!.day);
+    if (!newDateOnly.isAfter(today)) {
+      AppUtils.showSnackBar(
+        context,
+        'Please select a date at least 1 day in advance.',
+        isError: true,
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+
+    final success = await ref.read(bookingProvider.notifier).reschedulePickup(
       bookingId: widget.booking.bookingId,
       newPickupDate: _newDate!,
-      newTimeSlot: _newTime!.format(context),
-      newSlot: _selectedSlot,
+      newPickupTime: _newTime!.format(context),
+      oldSlotId: widget.booking.slotId,
     );
 
     if (!mounted) return;
@@ -570,28 +582,25 @@ class _RescheduleDialogState extends ConsumerState<_RescheduleDialog> {
 
     if (success) {
       AppUtils.showSnackBar(context, 'Pickup rescheduled successfully!');
-      // Close the dialog and the details page so the list refreshes
       Navigator.of(context).pop(); // close dialog
       Navigator.of(context).pop(); // back to booking list
     } else {
       final error = ref.read(bookingProvider).error;
-      AppUtils.showSnackBar(
-          context, error ?? 'Failed to reschedule pickup',
+      AppUtils.showSnackBar(context, error ?? 'Failed to reschedule pickup',
           isError: true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Within-24h guard — show info dialog instead
-    if (_isWithin24h) {
+    // Window-expired guard — show info dialog instead
+    if (_windowExpired) {
       return AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Cannot Reschedule'),
-        content: Text(
-          'You cannot reschedule within 24 hours of your pickup time.\n\n'
-          'Current pickup: $_currentSchedule',
+        content: const Text(
+          'Rescheduling is only allowed within 24 hours of booking.\n\n'
+          'The reschedule window for this booking has expired.',
         ),
         actions: [
           TextButton(
@@ -602,33 +611,58 @@ class _RescheduleDialogState extends ConsumerState<_RescheduleDialog> {
       );
     }
 
-    final occupied =
-        _allSlots.where((s) => !_availableSlots.contains(s)).toSet();
-    final canConfirm =
-        _newDate != null && _newTime != null && _selectedSlot != null;
+    final canConfirm = _newDate != null && _newTime != null;
 
     return Dialog(
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Title
-            Text(
-              'Reschedule Pickup',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleLarge
-                  ?.copyWith(fontWeight: FontWeight.bold),
+            // Title + live countdown
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Reschedule Pickup',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.shade300),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.timer_outlined,
+                          size: 14, color: Colors.orange.shade700),
+                      const SizedBox(width: 4),
+                      Text(
+                        _countdownText,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange.shade800,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 4),
             Text(
               'Current: $_currentSchedule',
-              style:
-                  TextStyle(color: Colors.grey.shade600, fontSize: 13),
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
             ),
             const Divider(height: 24),
 
@@ -663,126 +697,18 @@ class _RescheduleDialogState extends ConsumerState<_RescheduleDialog> {
               ),
             ),
 
-            // Slot grid — shown once both date and time are set
-            if (_newDate != null && _newTime != null) ...[
-              const SizedBox(height: 20),
-              const Text('Machine Slot',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              if (_isLoadingSlots)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: CircularProgressIndicator(),
-                  ),
-                )
-              else if (_availableSlots.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    'No slots available for this schedule. '
-                    'Try a different date or time.',
-                    style: TextStyle(
-                        color: Colors.grey.shade600, fontSize: 13),
-                  ),
-                )
-              else ...[
-                Row(
-                  children: [
-                    _dot(Theme.of(context).colorScheme.primary),
-                    const SizedBox(width: 4),
-                    const Text('Available',
-                        style: TextStyle(fontSize: 12)),
-                    const SizedBox(width: 12),
-                    _dot(Colors.grey.shade300),
-                    const SizedBox(width: 4),
-                    const Text('Occupied',
-                        style: TextStyle(fontSize: 12)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate:
-                      const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 5,
-                    mainAxisSpacing: 6,
-                    crossAxisSpacing: 6,
-                    childAspectRatio: 1.3,
-                  ),
-                  itemCount: _totalSlots,
-                  itemBuilder: (ctx, i) {
-                    final slot = _allSlots[i];
-                    final isOccupied = occupied.contains(slot);
-                    final isSelected = _selectedSlot == slot;
-                    final primary = Theme.of(ctx).colorScheme.primary;
-                    return GestureDetector(
-                      onTap: (isOccupied || _isSubmitting)
-                          ? null
-                          : () =>
-                              setState(() => _selectedSlot = slot),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        decoration: BoxDecoration(
-                          color: isOccupied
-                              ? Colors.grey.shade200
-                              : isSelected
-                                  ? primary
-                                  : primary.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                          border: isSelected
-                              ? Border.all(color: primary, width: 2)
-                              : null,
-                        ),
-                        alignment: Alignment.center,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              '${i + 1}',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                                color: isOccupied
-                                    ? Colors.grey.shade400
-                                    : isSelected
-                                        ? Colors.white
-                                        : Theme.of(ctx)
-                                            .colorScheme
-                                            .onSurface,
-                              ),
-                            ),
-                            if (isOccupied)
-                              Icon(Icons.lock_outline,
-                                  size: 9,
-                                  color: Colors.grey.shade400),
-                            if (isSelected)
-                              const Icon(Icons.check_circle,
-                                  size: 9, color: Colors.white),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ],
-
             const Divider(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton(
-                  onPressed: _isSubmitting
-                      ? null
-                      : () => Navigator.of(context).pop(),
+                  onPressed:
+                      _isSubmitting ? null : () => Navigator.of(context).pop(),
                   child: const Text('Cancel'),
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton(
-                  onPressed:
-                      (canConfirm && !_isSubmitting) ? _confirm : null,
+                  onPressed: (canConfirm && !_isSubmitting) ? _confirm : null,
                   child: _isSubmitting
                       ? const SizedBox(
                           height: 18,
@@ -799,9 +725,4 @@ class _RescheduleDialogState extends ConsumerState<_RescheduleDialog> {
       ),
     );
   }
-
-  Widget _dot(Color c) => Container(
-      width: 10,
-      height: 10,
-      decoration: BoxDecoration(color: c, shape: BoxShape.circle));
 }

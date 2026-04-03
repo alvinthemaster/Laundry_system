@@ -99,15 +99,17 @@ class BookingRepositoryImpl implements BookingRepository {
   Future<Either<Failure, void>> reschedulePickup({
     required String bookingId,
     required DateTime newPickupDate,
-    required String newTimeSlot,
+    required String newPickupTime,
     String? newSlot,
+    String? oldSlotId,
   }) async {
     try {
       await dataSource.reschedulePickup(
         bookingId: bookingId,
         newPickupDate: newPickupDate,
-        newTimeSlot: newTimeSlot,
+        newPickupTime: newPickupTime,
         newSlot: newSlot,
+        oldSlotId: oldSlotId,
       );
       return Either.right(null);
     } catch (e) {

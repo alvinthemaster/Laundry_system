@@ -42,7 +42,8 @@ abstract class BookingRepository {
   Future<Either<Failure, void>> reschedulePickup({
     required String bookingId,
     required DateTime newPickupDate,
-    required String newTimeSlot,
+    required String newPickupTime,
     String? newSlot,
+    String? oldSlotId,
   });
 }

@@ -37,8 +37,9 @@ abstract class BookingDataSource {
   Future<void> reschedulePickup({
     required String bookingId,
     required DateTime newPickupDate,
-    required String newTimeSlot,
+    required String newPickupTime,
     String? newSlot,
+    String? oldSlotId,
   });
   Future<void> createPaymentRecord({
     required String bookingId,
@@ -300,19 +301,18 @@ class BookingDataSourceImpl implements BookingDataSource {
   Future<void> reschedulePickup({
     required String bookingId,
     required DateTime newPickupDate,
-    required String newTimeSlot,
+    required String newPickupTime,
     String? newSlot,
+    String? oldSlotId,
   }) async {
     try {
-      final updates = <String, dynamic>{
-        'pickupDate': newPickupDate.toIso8601String(),
-        'timeSlot': newTimeSlot,
-        if (newSlot != null) 'slotId': newSlot,
-      };
       await _firestore
           .collection(AppConstants.bookingsCollection)
           .doc(bookingId)
-          .update(updates);
+          .update({
+        'pickupDate': newPickupDate.toIso8601String(),
+        'pickupTime': newPickupTime,
+      });
     } catch (e) {
       throw Exception('Failed to reschedule pickup: $e');
     }

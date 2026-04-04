@@ -8,6 +8,7 @@ class MachineSlotModel {
   final String endTime; // HH:mm
   final bool isAvailable;
   final String status; // available, booked, in_use, maintenance
+  final String? bookingId; // set when slot is booked
 
   const MachineSlotModel({
     required this.slotId,
@@ -17,6 +18,7 @@ class MachineSlotModel {
     required this.endTime,
     required this.isAvailable,
     this.status = 'available',
+    this.bookingId,
   });
 
   /// Converts a Firestore field (Timestamp or String) to HH:mm format
@@ -49,6 +51,7 @@ class MachineSlotModel {
       endTime: _toTimeString(data['endTime']),
       isAvailable: data['isAvailable'] as bool? ?? true,
       status: data['status'] as String? ?? 'available',
+      bookingId: data['bookingId'] as String?,
     );
   }
 

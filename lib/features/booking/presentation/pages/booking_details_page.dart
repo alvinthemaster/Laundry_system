@@ -34,6 +34,21 @@ class BookingDetailsPage extends ConsumerWidget {
     }
   }
 
+  String _normalizePaymentStatus(String status) {
+    switch (status.toLowerCase()) {
+      case 'paid':
+        return 'Paid';
+      case 'half paid':
+        return 'Half Paid';
+      case 'unpaid':
+        return 'Unpaid';
+      case 'failed':
+        return 'Failed';
+      default:
+        return status;
+    }
+  }
+
   Future<void> _cancelBooking(BuildContext context, WidgetRef ref) async {
     if (booking.paymentMethod == 'GCash') {
       await showDialog<void>(
@@ -305,18 +320,21 @@ if (booking.timeSlot != null) ...[
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 12, vertical: 4),
                               decoration: BoxDecoration(
-                                color: booking.paymentStatus == 'Paid'
+                                color: booking.paymentStatus.toLowerCase() == 'paid'
                                     ? Colors.green.withValues(alpha: 0.12)
-                                    : Colors.orange
-                                        .withValues(alpha: 0.12),
+                                    : booking.paymentStatus.toLowerCase() == 'half paid'
+                                        ? Colors.orange.withValues(alpha: 0.12)
+                                        : Colors.red.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(
-                                booking.paymentStatus,
+                                _normalizePaymentStatus(booking.paymentStatus),
                                 style: TextStyle(
-                                  color: booking.paymentStatus == 'Paid'
+                                  color: booking.paymentStatus.toLowerCase() == 'paid'
                                       ? Colors.green
-                                      : Colors.orange,
+                                      : booking.paymentStatus.toLowerCase() == 'half paid'
+                                          ? Colors.orange
+                                          : Colors.red,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
                                 ),
@@ -517,14 +535,13 @@ class _RescheduleDialogState extends ConsumerState<_RescheduleDialog> {
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
-    // New date must be at least 1 day ahead (no same-day or past)
-    final earliest =
-        DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = today.add(const Duration(days: 1));
     final picked = await showDatePicker(
       context: context,
-      initialDate: _newDate ?? earliest,
-      firstDate: earliest,
-      lastDate: now.add(const Duration(days: 30)),
+      initialDate: _newDate ?? today,
+      firstDate: today,
+      lastDate: tomorrow,
     );
     if (picked != null && mounted) {
       setState(() => _newDate = picked);
@@ -549,20 +566,6 @@ class _RescheduleDialogState extends ConsumerState<_RescheduleDialog> {
       AppUtils.showSnackBar(
         context,
         'Rescheduling is only allowed within 24 hours of booking.',
-        isError: true,
-      );
-      return;
-    }
-
-    // 1-day buffer: new date must be strictly after today
-    final today = DateTime(
-        DateTime.now().year, DateTime.now().month, DateTime.now().day);
-    final newDateOnly =
-        DateTime(_newDate!.year, _newDate!.month, _newDate!.day);
-    if (!newDateOnly.isAfter(today)) {
-      AppUtils.showSnackBar(
-        context,
-        'Please select a date at least 1 day in advance.',
         isError: true,
       );
       return;

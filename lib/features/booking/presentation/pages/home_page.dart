@@ -107,13 +107,30 @@ class _HomePageState extends ConsumerState<HomePage> {
     }
   }
 
+  String _normalizePaymentStatus(String status) {
+    switch (status.toLowerCase()) {
+      case 'paid':
+        return 'Paid';
+      case 'half paid':
+        return 'Half Paid';
+      case 'unpaid':
+        return 'Unpaid';
+      case 'failed':
+        return 'Failed';
+      default:
+        return status;
+    }
+  }
+
   Color _getPaymentColor(String status) {
-    switch (status) {
-      case 'Paid':
+    switch (status.toLowerCase()) {
+      case 'paid':
         return Colors.green;
-      case 'Half Paid':
+      case 'half paid':
         return Colors.orange;
-      case 'Unpaid':
+      case 'unpaid':
+        return Colors.red;
+      case 'failed':
         return Colors.red;
       default:
         return Colors.grey;
@@ -611,7 +628,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                             ),
                           ),
                           child: Text(
-                            booking.paymentStatus,
+                            _normalizePaymentStatus(booking.paymentStatus),
                             style: TextStyle(
                               color: _getPaymentColor(booking.paymentStatus),
                               fontSize: 10,

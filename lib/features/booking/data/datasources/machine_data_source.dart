@@ -39,6 +39,22 @@ class MachineDataSourceImpl implements MachineDataSource {
   static const int _operatingStartHour = 8;
   static const int _operatingEndHour = 20; // 8 PM
 
+  // ── Quota-saving in-memory caches (process lifetime) ──────────────────────
+  /// Prevents seedMachines from hitting Firestore on every provider access.
+  static bool _machinesSeeded = false;
+
+  /// bookingIds confirmed terminal (Completed / Cancelled). Once known, never
+  /// re-read — the status won't go backwards.
+  static final Set<String> _terminalBookingIds = {};
+
+  /// machineId|date keys for which slots have already been ensured this session.
+  static final Set<String> _ensuredSlotKeys = {};
+
+  /// Cached machine ids per machineType for use inside stream asyncMap so we
+  /// don't hit Firestore on every stream event.
+  static final Map<String, Set<String>> _machineIdsByType = {};
+  // ──────────────────────────────────────────────────────────────────────────
+
   MachineDataSourceImpl({
     FirebaseFirestore? firestore,
     Uuid? uuid,
@@ -66,10 +82,14 @@ class MachineDataSourceImpl implements MachineDataSource {
           .collection('machines')
           .where('machineType', isEqualTo: machineType)
           .get();
-      return snapshot.docs
+      final machines = snapshot.docs
           .map((doc) => MachineModel.fromFirestore(doc))
           .where((m) => m.isAvailable)
           .toList();
+      // Cache machine ids for this type so the stream asyncMap doesn't
+      // re-query Firestore on every emission.
+      _machineIdsByType[machineType] = machines.map((m) => m.machineId).toSet();
+      return machines;
     } catch (e) {
       throw Exception('Failed to fetch machines by type: $e');
     }
@@ -92,7 +112,8 @@ class MachineDataSourceImpl implements MachineDataSource {
           .where((slot) => slot.date == date)
           .toList();
       slots.sort((a, b) => a.startTime.compareTo(b.startTime));
-      return slots;
+      // Heal stale slots: release slots whose bookings are already terminal.
+      return await _releaseStaleSlots(slots);
     } catch (e) {
       throw Exception('Failed to fetch slots: $e');
     }
@@ -157,13 +178,25 @@ class MachineDataSourceImpl implements MachineDataSource {
           .toList();
 
       if (machineType != null) {
-        final machines = await getMachinesByType(machineType);
-        final machineIds = machines.map((m) => m.machineId).toSet();
-        final filtered = slots.where((s) => machineIds.contains(s.machineId)).toList();
+        // Use in-memory cache so we don't hit Firestore on every stream event.
+        // If cache is warm (populated by a prior getMachinesByType call), use it;
+        // otherwise fall back to a one-time fetch and populate the cache.
+        Set<String> machineIds;
+        if (_machineIdsByType.containsKey(machineType)) {
+          machineIds = _machineIdsByType[machineType]!;
+        } else {
+          final machines = await getMachinesByType(machineType); // populates cache
+          machineIds = machines.map((m) => m.machineId).toSet();
+        }
+        var filtered = slots.where((s) => machineIds.contains(s.machineId)).toList();
         filtered.sort((a, b) {
           final cmp = a.machineId.compareTo(b.machineId);
           return cmp != 0 ? cmp : a.startTime.compareTo(b.startTime);
         });
+        // NOTE: _releaseStaleSlots is intentionally NOT called here.
+        // Calling it inside the stream causes a read loop: release write →
+        // stream fires again → reads bookings again → repeat.
+        // Stale-slot healing happens once in getSlotsForMachine (one-time fetch).
         return filtered;
       }
 
@@ -171,6 +204,7 @@ class MachineDataSourceImpl implements MachineDataSource {
         final cmp = a.machineId.compareTo(b.machineId);
         return cmp != 0 ? cmp : a.startTime.compareTo(b.startTime);
       });
+      // NOTE: _releaseStaleSlots intentionally not called here (see above).
       return slots;
     });
   }
@@ -228,11 +262,98 @@ class MachineDataSourceImpl implements MachineDataSource {
     }
   }
 
+  /// Terminal booking statuses — slots associated with these should be freed.
+  static const _terminalStatuses = {'Completed', 'Cancelled', 'completed', 'cancelled'};
+
+  /// For every booked slot that has a bookingId, check whether the booking has
+  /// reached a terminal state. If so, release the slot in Firestore so it
+  /// becomes bookable again, and return an updated list with those slots marked
+  /// as available. This heals stale slot state caused by admin-side status
+  /// updates that don't touch machine_slots.
+  /// Only called from getSlotsForMachine (one-time fetch), NOT from the stream,
+  /// to prevent Firestore write → stream emission → re-read loops.
+  Future<List<MachineSlotModel>> _releaseStaleSlots(
+      List<MachineSlotModel> slots) async {
+    // Collect slots that are marked as booked and have a bookingId.
+    final staleCheck = slots
+        .where((s) => !s.isAvailable && s.bookingId != null && s.bookingId!.isNotEmpty)
+        .toList();
+
+    if (staleCheck.isEmpty) return slots;
+
+    // Skip bookingIds we already know are terminal (cached from prior checks).
+    final unchecked = staleCheck
+        .where((s) => !_terminalBookingIds.contains(s.bookingId))
+        .toList();
+
+    if (unchecked.isNotEmpty) {
+      // Batch-fetch only the unchecked bookings.
+      final bookingIds = unchecked.map((s) => s.bookingId!).toSet().toList();
+      const chunkSize = 30;
+      for (int i = 0; i < bookingIds.length; i += chunkSize) {
+        final chunk = bookingIds.skip(i).take(chunkSize).toList();
+        try {
+          final snap = await _firestore
+              .collection('bookings')
+              .where(FieldPath.documentId, whereIn: chunk)
+              .get();
+          for (final doc in snap.docs) {
+            final status = (doc.data()['status'] as String?) ?? '';
+            if (_terminalStatuses.contains(status)) {
+              _terminalBookingIds.add(doc.id);
+            }
+          }
+        } catch (_) {
+          // If the fetch fails, skip — better to show a slot as unavailable than crash.
+        }
+      }
+    }
+
+    // Determine which slots need releasing (now includes cached terminal ids).
+    final toRelease = staleCheck
+        .where((s) => _terminalBookingIds.contains(s.bookingId))
+        .toList();
+
+    if (toRelease.isEmpty) return slots;
+
+    // Release in Firestore concurrently (fire-and-forget).
+    await Future.wait(
+      toRelease.map((s) => _firestore.collection('machine_slots').doc(s.slotId).update({
+            'isAvailable': true,
+            'status': 'available',
+            'bookingId': FieldValue.delete(),
+            'bookedAt': FieldValue.delete(),
+          }).catchError((_) => null)),
+    );
+
+    // Return updated list with released slots marked available.
+    final releasedIds = toRelease.map((s) => s.slotId).toSet();
+    return slots.map((s) {
+      if (releasedIds.contains(s.slotId)) {
+        return MachineSlotModel(
+          slotId: s.slotId,
+          machineId: s.machineId,
+          date: s.date,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          isAvailable: true,
+          status: 'available',
+          bookingId: null,
+        );
+      }
+      return s;
+    }).toList();
+  }
+
   @override
   Future<void> ensureSlotsExist({
     required String machineId,
     required String date,
   }) async {
+    // Skip if already ensured this session — avoids repeated Firestore reads.
+    final key = '$machineId|$date';
+    if (_ensuredSlotKeys.contains(key)) return;
+
     try {
       // Check if slots already exist for this machine + date
       // First try string-based date query
@@ -243,7 +364,10 @@ class MachineDataSourceImpl implements MachineDataSource {
           .limit(1)
           .get();
 
-      if (existing.docs.isNotEmpty) return; // Slots already generated (string date)
+      if (existing.docs.isNotEmpty) {
+        _ensuredSlotKeys.add(key); // Cache: don't re-check next time
+        return;
+      }
 
       // Also check via machineId-only query and client-side date filter
       // This handles Timestamp-stored dates that won't match string queries
@@ -266,7 +390,10 @@ class MachineDataSourceImpl implements MachineDataSource {
         return slotDate == date;
       });
 
-      if (hasMatchingSlots) return; // Slots exist with Timestamp date
+      if (hasMatchingSlots) {
+        _ensuredSlotKeys.add(key); // Cache: don't re-check next time
+        return;
+      }
 
       // Generate hourly slots for the operating hours
       final batch = _firestore.batch();
@@ -296,6 +423,7 @@ class MachineDataSourceImpl implements MachineDataSource {
       }
 
       await batch.commit();
+      _ensuredSlotKeys.add(key); // Cache after successful creation
     } catch (e) {
       throw Exception('Failed to ensure slots exist: $e');
     }
@@ -303,9 +431,14 @@ class MachineDataSourceImpl implements MachineDataSource {
 
   @override
   Future<void> seedMachines() async {
+    // In-memory guard: skip Firestore check if already seeded this session.
+    if (_machinesSeeded) return;
     try {
       final existing = await _firestore.collection('machines').limit(1).get();
-      if (existing.docs.isNotEmpty) return; // Already seeded
+      if (existing.docs.isNotEmpty) {
+        _machinesSeeded = true;
+        return;
+      }
 
       final machines = [
         MachineModel(
@@ -346,11 +479,13 @@ class MachineDataSourceImpl implements MachineDataSource {
         batch.set(ref, machine.toJson());
       }
       await batch.commit();
+      _machinesSeeded = true;
     } on FirebaseException catch (e) {
       if (e.code == 'permission-denied') {
         // Permission denied - machines need to be created by admin
         // This is expected if rules don't allow user to write
         print('Machines need to be created by admin. Permission denied for user seeding.');
+        _machinesSeeded = true; // Don't retry — admin manages machines
         return; // Don't throw, just return silently
       }
       throw Exception('Failed to seed machines: ${e.message}');

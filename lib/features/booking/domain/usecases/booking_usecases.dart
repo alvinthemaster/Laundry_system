@@ -25,6 +25,7 @@ class CreateBookingUseCase {
     double? slotFee,
     double? deliveryFee,
     String? customerName,
+    String? serviceType,
   }) {
     return repository.createBooking(
       userId: userId,
@@ -43,6 +44,7 @@ class CreateBookingUseCase {
       slotFee: slotFee,
       deliveryFee: deliveryFee,
       customerName: customerName,
+      serviceType: serviceType,
     );
   }
 }

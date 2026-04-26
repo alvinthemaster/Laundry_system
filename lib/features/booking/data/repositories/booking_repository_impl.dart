@@ -27,6 +27,7 @@ class BookingRepositoryImpl implements BookingRepository {
     double? slotFee,
     double? deliveryFee,
     String? customerName,
+    String? serviceType,
   }) async {
     try {
       final booking = await dataSource.createBooking(
@@ -46,6 +47,7 @@ class BookingRepositoryImpl implements BookingRepository {
         slotFee: slotFee,
         deliveryFee: deliveryFee,
         customerName: customerName,
+        serviceType: serviceType,
       );
       return Either.right(booking);
     } catch (e) {

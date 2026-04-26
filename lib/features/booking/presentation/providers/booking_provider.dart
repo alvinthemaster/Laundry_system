@@ -112,6 +112,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
     double? slotFee,
     double? deliveryFee,
     String? customerName,
+    String? serviceType,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
     
@@ -132,6 +133,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
       slotFee: slotFee,
       deliveryFee: deliveryFee,
       customerName: customerName,
+      serviceType: serviceType,
     );
     
     return result.fold(
@@ -220,6 +222,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
               deliveryAddress: booking.deliveryAddress,
               pickupDate: booking.pickupDate,
               timeSlot: booking.timeSlot,
+              serviceType: booking.serviceType,
               status: 'Cancelled',
               paymentStatus: booking.paymentStatus,
               paymentMethod: booking.paymentMethod,
@@ -282,6 +285,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
               pickupDate: newPickupDate,
               timeSlot: booking.timeSlot, // unchanged
               pickupTime: newPickupTime,
+              serviceType: booking.serviceType,
               status: booking.status,
               paymentStatus: booking.paymentStatus,
               paymentMethod: booking.paymentMethod,

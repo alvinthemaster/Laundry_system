@@ -69,6 +69,12 @@ class AppConstants {
   // Booking Types
   static const String bookingTypePickup = 'pickup';
   static const String bookingTypeDelivery = 'delivery';
+
+  // Service Types (Laundry service options)
+  static const String serviceTypeWash = 'Wash';
+  static const String serviceTypeDry = 'Dry';
+  static const String serviceTypeWashDry = 'Wash & Dry';
+  static const List<String> serviceTypeOptions = ['Wash', 'Dry', 'Wash & Dry'];
   
   // Booking Fee (fixed)
   static const double bookingFee = 20.0;

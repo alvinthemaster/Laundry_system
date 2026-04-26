@@ -29,7 +29,10 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
   // Step 2: Booking Date
   DateTime? _selectedDate;
 
-  // Step 3: Category & Add-ons
+  // Step 3: Service Type
+  String? _serviceType;
+
+  // Step 4: Category & Add-ons
   final List<String> _selectedCategories = [];
   final List<Map<String, dynamic>> _selectedAddOns = [];
 
@@ -64,7 +67,7 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
   double get _bookingFee => AppConstants.bookingFee;
 
   double get _totalAmount =>
-      _addOnsTotal + _slotFee + _bookingFee + _deliveryFee;
+      _addOnsTotal + _bookingFee + _deliveryFee;
 
   bool _canProceed() {
     switch (_currentStep) {
@@ -79,10 +82,10 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
         if (_bookingType == AppConstants.bookingTypePickup &&
             _pickupDate == null) return false;
         return true;
-      case 2: // Category & Add-ons
+      case 2: // Service Type
+        return _serviceType != null;
+      case 3: // Category & Add-ons
         return _selectedCategories.isNotEmpty;
-      case 3: // Machine & Slot
-        return _selectedMachine != null && _selectedSlot != null;
       default:
         return false;
     }
@@ -102,11 +105,6 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
       setState(() {
         _currentStep++;
       });
-
-      // When entering step 3 (machine/slot), load machines
-      if (_currentStep == 3) {
-        _loadMachinesAndSlots();
-      }
     }
   }
 
@@ -126,9 +124,9 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
         if (_selectedDate == null) return 'Please select a booking date';
         return 'Please select a pickup date';
       case 2:
-        return 'Please select at least one service category';
+        return 'Please select a service type';
       case 3:
-        return 'Please select a machine and time slot';
+        return 'Please select at least one service category';
       default:
         return 'Please complete all required fields';
     }
@@ -239,6 +237,7 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
                     .toList(),
                 selectedAddOns: _selectedAddOns,
                 bookingType: _bookingType,
+                serviceType: _serviceType,
                 deliveryAddress: _bookingType ==
                         AppConstants.bookingTypeDelivery
                     ? _deliveryAddressController.text.trim()
@@ -246,14 +245,8 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
                 pickupDate: _bookingType == AppConstants.bookingTypePickup
                     ? _pickupDate
                     : _selectedDate,
-                timeSlot:
-                    '${_selectedSlot!.startTime} - ${_selectedSlot!.endTime}',
                 paymentMethod: paymentMethod,
-                machineId: _selectedMachine!.machineId,
-                machineName: _selectedMachine!.machineName,
-                slotId: _selectedSlot!.slotId,
                 totalAmount: _totalAmount,
-                slotFee: _slotFee,
                 deliveryFee: _deliveryFee,
                 customerName: user.fullName,
               );
@@ -330,8 +323,8 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
     final stepLabels = [
       'Type',
       'Date',
+      'Service',
       'Category',
-      'Machine',
     ];
 
     return Container(
@@ -439,9 +432,9 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
       case 1:
         return _buildStep2BookingDate(theme);
       case 2:
-        return _buildStep3CategoryAddOns(theme);
+        return _buildStep3ServiceType(theme);
       case 3:
-        return _buildStep4MachineSlot(theme);
+        return _buildStep4CategoryAddOns(theme);
       default:
         return const SizedBox.shrink();
     }
@@ -761,9 +754,127 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
   }
 
   // ============================================================
-  // Step 3: Category & Add-ons
+  // Step 3: Service Type
   // ============================================================
-  Widget _buildStep3CategoryAddOns(ThemeData theme) {
+  Widget _buildStep3ServiceType(ThemeData theme) {
+    const serviceOptions = [
+      (
+        value: AppConstants.serviceTypeWash,
+        label: 'Wash',
+        description: 'Laundry washed and folded',
+        icon: Icons.local_laundry_service,
+      ),
+      (
+        value: AppConstants.serviceTypeDry,
+        label: 'Dry',
+        description: 'Laundry dried only',
+        icon: Icons.dry,
+      ),
+      (
+        value: AppConstants.serviceTypeWashDry,
+        label: 'Wash & Dry',
+        description: 'Full wash and dry service',
+        icon: Icons.dry_cleaning,
+      ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Select Service Type',
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'What service do you need?',
+          style: TextStyle(color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 24),
+        ...serviceOptions.map((option) {
+          final isSelected = _serviceType == option.value;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => setState(() => _serviceType = option.value),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: isSelected
+                        ? theme.colorScheme.primary
+                        : Colors.grey.shade300,
+                    width: isSelected ? 2 : 1,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  color: isSelected
+                      ? theme.colorScheme.primary.withOpacity(0.05)
+                      : Colors.white,
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? theme.colorScheme.primary
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        option.icon,
+                        color: isSelected ? Colors.white : Colors.grey,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            option.label,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: isSelected
+                                  ? theme.colorScheme.primary
+                                  : Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            option.description,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (isSelected)
+                      Icon(Icons.check_circle,
+                          color: theme.colorScheme.primary, size: 24),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  // ============================================================
+  // Step 4: Category & Add-ons
+  // ============================================================
+  Widget _buildStep4CategoryAddOns(ThemeData theme) {
     final categories = AppConstants.serviceCategories.keys.toList();
     final addOns = {
       'Fabric Conditioner': 30.0,
@@ -1386,14 +1497,6 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
                 ? '-'
                 : _selectedCategories.join(', '),
           ),
-          _SummaryRow(
-            label: 'Machine',
-            value: _selectedMachine?.machineName ?? '-',
-          ),
-          _SummaryRow(
-            label: 'Time Slot',
-            value: _selectedSlot?.timeRange ?? '-',
-          ),
           if (_selectedAddOns.isNotEmpty)
             _SummaryRow(
               label: 'Add-ons',
@@ -1405,10 +1508,6 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
           _SummaryRow(
             label: 'Booking Fee',
             value: AppUtils.formatCurrency(_bookingFee),
-          ),
-          _SummaryRow(
-            label: 'Slot Fee',
-            value: AppUtils.formatCurrency(_slotFee),
           ),
           if (_deliveryFee > 0)
             _SummaryRow(

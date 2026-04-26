@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:uuid/uuid.dart';
 import 'package:laundry_system/core/constants/app_constants.dart';
+import 'package:laundry_system/core/services/pricing_service.dart';
 import 'package:laundry_system/features/booking/data/models/booking_model.dart';
 
 abstract class BookingDataSource {
@@ -24,6 +25,7 @@ abstract class BookingDataSource {
     double? slotFee,
     double? deliveryFee,
     String? customerName,
+    String? serviceType,
   });
 
   Future<List<String>> getBookedSlots({
@@ -77,8 +79,23 @@ class BookingDataSourceImpl implements BookingDataSource {
     double? slotFee,
     double? deliveryFee,
     String? customerName,
+    String? serviceType,
   }) async {
     try {
+      // Enrich each category with its computed price
+      final enrichedCategories = categories.map((cat) {
+        final name = cat['name'] as String? ?? '';
+        final weight = (cat['weight'] as num?)?.toDouble() ?? 0.0;
+        final computedPrice = (cat['computedPrice'] as num?)?.toDouble() ??
+            PricingService.calculateCategoryPrice(category: name, weight: weight);
+        return {...cat, 'computedPrice': computedPrice};
+      }).toList();
+
+      final computedCategoryTotal = enrichedCategories.fold<double>(
+        0.0,
+        (sum, cat) => sum + ((cat['computedPrice'] as num?)?.toDouble() ?? 0.0),
+      );
+
       final resolvedTotal = totalAmount ?? AppConstants.bookingFee;
 
       final paymentStatus = paymentMethod == AppConstants.paymentGCash
@@ -94,8 +111,8 @@ class BookingDataSourceImpl implements BookingDataSource {
       final bookingModel = BookingModel(
         bookingId: bookingId,
         userId: userId,
-        categories: categories,
-        categoryTotal: 0.0,
+        categories: enrichedCategories,
+        categoryTotal: computedCategoryTotal,
         selectedAddOns: selectedAddOns,
         addOnsTotal: addOnsTotal,
         bookingFee: AppConstants.bookingFee,
@@ -104,7 +121,8 @@ class BookingDataSourceImpl implements BookingDataSource {
         deliveryAddress: deliveryAddress,
         pickupDate: pickupDate,
         timeSlot: timeSlot,
-        status: AppConstants.statusConfirmed,
+        serviceType: serviceType,
+        status: AppConstants.statusPending,
         paymentStatus: paymentStatus,
         paymentMethod: paymentMethod,
         specialInstructions: specialInstructions,

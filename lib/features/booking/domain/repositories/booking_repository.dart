@@ -21,6 +21,7 @@ abstract class BookingRepository {
     double? slotFee,
     double? deliveryFee,
     String? customerName,
+    String? serviceType,
   });
 
   // Get booked slots for a given date + time

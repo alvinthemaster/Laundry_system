@@ -1,6 +1,7 @@
 ﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:laundry_system/core/services/pricing_service.dart';
 import 'package:laundry_system/core/utils/app_utils.dart';
 import 'package:laundry_system/features/booking/domain/entities/booking_entity.dart';
 import 'package:laundry_system/features/booking/presentation/providers/booking_provider.dart';
@@ -188,18 +189,15 @@ class BookingDetailsPage extends ConsumerWidget {
                     const SizedBox(height: 12),
                   ],
 
-                  if (booking.machineName != null) ...[                    
+                  if (booking.serviceType != null) ...[  
                     _row(
                       context,
-                      Icons.wash,
-                      'Machine',
-                      booking.machineName!,
+                      Icons.local_laundry_service,
+                      'Service Type',
+                      booking.serviceType!,
                     ),
                     const SizedBox(height: 12),
                   ],
-
-                  _row(context, Icons.shopping_bag, 'Booking Type',
-                      booking.bookingType.toUpperCase()),
                   const SizedBox(height: 12),
 
                   if (booking.deliveryAddress != null) ...[
@@ -254,6 +252,24 @@ if (booking.timeSlot != null) ...[
                     ),
                     child: Column(
                       children: [
+                        // Categories breakdown
+                        if (booking.categories.isNotEmpty) ...[                          
+                          ...booking.categories.map((cat) {
+                            final name = (cat['name'] as String?) ?? 'Unknown';
+                            final weight = (cat['weight'] as num?)?.toDouble() ?? 0.0;
+                            final price = (cat['computedPrice'] as num?)?.toDouble() ??
+                                PricingService.calculateCategoryPrice(
+                                    category: name, weight: weight);
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: _payRow(
+                                '$name (${weight}kg)',
+                                AppUtils.formatCurrency(price),
+                              ),
+                            );
+                          }),
+                          const SizedBox(height: 4),
+                        ],
                         // Slot fee row
                         if (booking.slotFee > 0) ...[
                           _payRow(
@@ -295,12 +311,7 @@ if (booking.timeSlot != null) ...[
                                     ?.copyWith(
                                         fontWeight: FontWeight.bold)),
                             Text(
-                              AppUtils.formatCurrency(
-                                booking.slotFee +
-                                booking.deliveryFee +
-                                booking.addOnsTotal +
-                                booking.bookingFee,
-                              ),
+                              AppUtils.formatCurrency(booking.totalAmount),
                               style: Theme.of(context)
                                   .textTheme
                                   .titleLarge

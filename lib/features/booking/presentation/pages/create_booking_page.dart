@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:laundry_system/core/constants/app_constants.dart';
 import 'package:laundry_system/core/services/pricing_service.dart';
@@ -16,23 +16,24 @@ class CreateBookingPage extends ConsumerStatefulWidget {
 }
 
 class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
-  final _formKey = GlobalKey<FormState>();
-  
-  // Multi-category support
-  final Map<String, TextEditingController> _categoryWeightControllers = {};
-  final Set<String> _selectedCategories = {};
-  
-  // Service & Add-ons
-  final Set<String> _selectedServices = {};
-  final Map<String, double> _selectedAddOns = {};
-  
-  // Delivery/Pickup logic
-  bool _isDeliverySelected = false;
-  final _deliveryAddressController = TextEditingController();
+  int _currentStep = 0;
+  static const int _totalSteps = 4;
+
+  // Step 1: Booking Type
+  String? _bookingType;
+
+  // Step 2: Date / Delivery
   DateTime? _selectedDate;
   String? _selectedTimeSlot;
-  
-  // All available time slots (8 AM to 8 PM, hourly)
+  final _deliveryAddressController = TextEditingController();
+
+  // Step 3: Service Type
+  String? _serviceType;
+
+  // Step 4: Category
+  final Map<String, TextEditingController> _categoryWeightControllers = {};
+  final Set<String> _selectedCategories = {};
+
   static const List<String> _allTimeSlots = [
     '08:00 - 09:00',
     '09:00 - 10:00',
@@ -48,19 +49,93 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
     '19:00 - 20:00',
   ];
   
-  // Other fields
-  final _instructionsController = TextEditingController();
-  
   @override
   void dispose() {
-    _categoryWeightControllers.forEach((_, controller) => controller.dispose());
+    _categoryWeightControllers.forEach((_, c) => c.dispose());
     _deliveryAddressController.dispose();
-    _instructionsController.dispose();
     super.dispose();
   }
-  
+
+  bool _validateCurrentStep() {
+    switch (_currentStep) {
+      case 0:
+        if (_bookingType == null) {
+          AppUtils.showSnackBar(context, 'Please select a booking type', isError: true);
+          return false;
+        }
+        return true;
+      case 1:
+        if (_bookingType == AppConstants.bookingTypeDelivery) {
+          if (_deliveryAddressController.text.trim().isEmpty) {
+            AppUtils.showSnackBar(context, 'Please enter delivery address', isError: true);
+            return false;
+          }
+        } else {
+          if (_selectedDate == null) {
+            AppUtils.showSnackBar(context, 'Please select a pickup date', isError: true);
+            return false;
+          }
+          if (_selectedTimeSlot == null) {
+            AppUtils.showSnackBar(context, 'Please select a time slot', isError: true);
+            return false;
+          }
+        }
+        return true;
+      case 2:
+        if (_serviceType == null) {
+          AppUtils.showSnackBar(context, 'Please select a service type', isError: true);
+          return false;
+        }
+        return true;
+      case 3:
+        if (_selectedCategories.isEmpty) {
+          AppUtils.showSnackBar(context, 'Please select at least one category', isError: true);
+          return false;
+        }
+        for (final category in _selectedCategories) {
+          final weight =
+              double.tryParse(_categoryWeightControllers[category]?.text ?? '') ?? 0.0;
+          if (weight <= 0) {
+            AppUtils.showSnackBar(context, 'Please enter weight for $category', isError: true);
+            return false;
+          }
+        }
+        return true;
+      default:
+        return true;
+    }
+  }
+
+  void _nextStep() {
+    if (!_validateCurrentStep()) return;
+    if (_currentStep < _totalSteps - 1) {
+      setState(() => _currentStep++);
+    }
+  }
+
+  void _prevStep() {
+    if (_currentStep > 0) {
+      setState(() => _currentStep--);
+    }
+  }
+
+  List<Map<String, dynamic>> _buildCategoriesList() {
+    return _selectedCategories.map((name) {
+      final weight =
+          double.tryParse(_categoryWeightControllers[name]?.text ?? '0') ?? 0.0;
+      return {'name': name, 'weight': weight};
+    }).toList();
+  }
+
+  double _calculateTotal() {
+    final categories = _buildCategoriesList();
+    if (categories.isEmpty) return AppConstants.bookingFee;
+    final categoryTotal = PricingService.calculateMultipleCategoriesTotal(categories);
+    return categoryTotal + AppConstants.bookingFee;
+  }
+
   Future<void> _selectDate() async {
-    final DateTime? picked = await showDatePicker(
+    final picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now().add(const Duration(days: 1)),
       firstDate: DateTime.now(),
@@ -69,533 +144,326 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
     if (picked != null) {
       setState(() {
         _selectedDate = picked;
-        _selectedTimeSlot = null; // Reset time slot when date changes
+        _selectedTimeSlot = null;
       });
     }
   }
   
-
-  
-  /// Build categories list with weights and computed prices
-  List<Map<String, dynamic>> _buildCategoriesList() {
-    return _selectedCategories.map((categoryName) {
-      final controller = _categoryWeightControllers[categoryName];
-      final weight = double.tryParse(controller?.text ?? '0') ?? 0.0;
-      return {
-        'name': categoryName,
-        'weight': weight,
-      };
-    }).toList();
-  }
-  
-  /// Calculate pricing breakdown
-  Map<String, double> _calculatePricing() {
-    final categories = _buildCategoriesList();
-    
-    if (categories.isEmpty) {
-      return {
-        'categoryTotal': 0.0,
-        'servicesTotal': 0.0,
-        'addOnsTotal': 0.0,
-        'bookingFee': AppConstants.bookingFee,
-        'grandTotal': AppConstants.bookingFee,
-      };
-    }
-    
-    final categoryTotal = PricingService.calculateMultipleCategoriesTotal(categories);
-    final servicesTotal = PricingService.calculateServicesTotal(_selectedServices.toList());
-    final addOnsTotal = PricingService.calculateAddOnsTotal(
-      _selectedAddOns.entries.map((e) => {'name': e.key, 'price': e.value}).toList(),
-    );
-    final grandTotal = categoryTotal + servicesTotal + addOnsTotal + AppConstants.bookingFee;
-    
-    return {
-      'categoryTotal': categoryTotal,
-      'servicesTotal': servicesTotal,
-      'addOnsTotal': addOnsTotal,
-      'bookingFee': AppConstants.bookingFee,
-      'grandTotal': grandTotal,
-    };
-  }
-  
   Future<void> _proceedToPayment() async {
-    if (!_formKey.currentState!.validate()) return;
-    
-    // Validation
-    if (_selectedCategories.isEmpty) {
-      AppUtils.showSnackBar(context, 'Please select at least one category', isError: true);
-      return;
-    }
-    
-    // Check each category has weight
-    for (final category in _selectedCategories) {
-      final controller = _categoryWeightControllers[category];
-      final weight = double.tryParse(controller?.text ?? '0') ?? 0.0;
-      if (weight <= 0) {
-        AppUtils.showSnackBar(context, 'Please enter weight for $category', isError: true);
-        return;
-      }
-    }
-    
-    if (_selectedServices.isEmpty) {
-      AppUtils.showSnackBar(context, 'Please select at least one service', isError: true);
-      return;
-    }
-    
-    // Delivery/Pickup validation
-    if (_isDeliverySelected) {
-      if (_deliveryAddressController.text.trim().isEmpty) {
-        AppUtils.showSnackBar(context, 'Please enter delivery address', isError: true);
-        return;
-      }
-    } else {
-      if (_selectedDate == null) {
-        AppUtils.showSnackBar(context, 'Please select pickup date', isError: true);
-        return;
-      }
-      if (_selectedTimeSlot == null) {
-        AppUtils.showSnackBar(context, 'Please select a time slot', isError: true);
-        return;
-      }
-    }
-    
-    final pricing = _calculatePricing();
-    
-    // Navigate to payment page
+    if (!_validateCurrentStep()) return;
+
+    final total = _calculateTotal();
+
     final paymentMethod = await Navigator.push<String>(
       context,
       MaterialPageRoute(
         builder: (context) => PaymentPage(
-          totalAmount: pricing['grandTotal']!,
+          totalAmount: total,
           onPaymentComplete: () {},
         ),
       ),
     );
-    
+
     if (paymentMethod == null || !mounted) return;
-    
-    // Create booking with payment info
+
     await _createBooking(paymentMethod);
   }
-  
+
   Future<void> _createBooking(String paymentMethod) async {
     final user = ref.read(authProvider).user;
     if (user == null) {
       AppUtils.showSnackBar(context, 'User not found', isError: true);
       return;
     }
-    
-    final categories = _buildCategoriesList();
-    final bookingType = _isDeliverySelected 
-        ? AppConstants.bookingTypeDelivery 
-        : AppConstants.bookingTypePickup;
-    
-    // Prepare add-ons list
-    final addOnsList = _selectedAddOns.entries.map((e) {
-      return {
-        'name': e.key,
-        'price': e.value,
-      };
-    }).toList();
-    
+
+    final total = _calculateTotal();
+
     final success = await ref.read(bookingProvider.notifier).createBooking(
       userId: user.uid,
-      categories: categories,
-      selectedAddOns: addOnsList,
-      bookingType: bookingType,
-      deliveryAddress: _isDeliverySelected ? _deliveryAddressController.text.trim() : null,
-      pickupDate: !_isDeliverySelected ? _selectedDate : null,
-      timeSlot: !_isDeliverySelected ? _selectedTimeSlot : null,
+      categories: _buildCategoriesList(),
+      selectedAddOns: const [],
+      bookingType: _bookingType!,
+      serviceType: _serviceType,
+      deliveryAddress: _bookingType == AppConstants.bookingTypeDelivery
+          ? _deliveryAddressController.text.trim()
+          : null,
+      pickupDate: _bookingType == AppConstants.bookingTypePickup ? _selectedDate : null,
+      timeSlot: _bookingType == AppConstants.bookingTypePickup ? _selectedTimeSlot : null,
       paymentMethod: paymentMethod,
-      specialInstructions: _instructionsController.text.trim().isEmpty
-          ? null
-          : _instructionsController.text.trim(),
+      totalAmount: total,
     );
-    
+
     if (!mounted) return;
-    
+
     if (success) {
       AppUtils.showSnackBar(context, 'Booking created successfully!');
-      // Pop back to home page (remove all booking creation pages from stack)
       Navigator.of(context).popUntil((route) => route.isFirst);
     } else {
       final error = ref.read(bookingProvider).error;
       AppUtils.showSnackBar(context, error ?? 'Failed to create booking', isError: true);
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     final bookingState = ref.watch(bookingProvider);
-    final pricing = _calculatePricing();
-    
+    final isLastStep = _currentStep == _totalSteps - 1;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('New Booking'),
         elevation: 0,
       ),
-      body: Form(
-        key: _formKey,
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // SECTION 1: Category Selection (Multi-select)
-                    _buildSectionCard(
-                      icon: Icons.category,
-                      title: 'Select Categories',
-                      subtitle: 'Choose one or more categories',
-                      child: _buildCategorySelection(),
-                    ),
-                    const SizedBox(height: 20),
-                    
-                    // SECTION 2: Dynamic Weight Inputs (per category)
-                    if (_selectedCategories.isNotEmpty) ...[
-                      _buildSectionCard(
-                        icon: Icons.scale,
-                        title: 'Enter Weights',
-                        subtitle: 'Weight for each selected category',
-                        child: _buildWeightInputs(),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-                    
-                    // SECTION 3: Service Selection
-                    _buildSectionCard(
-                      icon: Icons.local_laundry_service,
-                      title: 'Select Services',
-                      subtitle: 'Choose one or more services',
-                      child: _buildServiceSelection(),
-                    ),
-                    const SizedBox(height: 20),
-                    
-                    // SECTION 4: Add-ons
-                    _buildSectionCard(
-                      icon: Icons.add_circle_outline,
-                      title: 'Optional Add-ons',
-                      subtitle: 'Extra services for your laundry',
-                      child: _buildAddOnsSelection(),
-                    ),
-                    const SizedBox(height: 20),
-                    
-                    // SECTION 5: Delivery/Pickup Fields
-                    _buildSectionCard(
-                      icon: _isDeliverySelected ? Icons.local_shipping : Icons.store,
-                      title: _isDeliverySelected ? 'Delivery Details' : 'Pickup Details',
-                      subtitle: _isDeliverySelected 
-                          ? 'Your laundry will be delivered' 
-                          : 'You will pick up your laundry',
-                      child: _buildDeliveryPickupFields(),
-                    ),
-                    const SizedBox(height: 20),
-                    
-                    // Special Instructions
-                    TextFormField(
-                      controller: _instructionsController,
-                      maxLines: 3,
-                      decoration: InputDecoration(
-                        labelText: 'Special Instructions (Optional)',
-                        hintText: 'Any special requests or notes...',
-                        prefixIcon: const Icon(Icons.note),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey.shade50,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    
-                    // SECTION 6: Price Summary
-                    _buildPriceSummary(pricing),
-                    const SizedBox(height: 100), // Space for bottom button
-                  ],
+      body: Column(
+        children: [
+          _buildStepIndicator(),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                child: KeyedSubtree(
+                  key: ValueKey(_currentStep),
+                  child: _buildStepContent(),
                 ),
               ),
             ),
-            
-            // SECTION 7: Payment Button
-            _buildBottomPaymentButton(bookingState, pricing),
-          ],
-        ),
+          ),
+          _buildBottomNavigation(bookingState, isLastStep),
+        ],
       ),
     );
   }
-  
-  /// Build section card wrapper for clean UI
-  Widget _buildSectionCard({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required Widget child,
-  }) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+
+  Widget _buildStepIndicator() {
+    final stepLabels = ['Type', 'Date', 'Service', 'Category'];
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(icon, size: 24),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        subtitle,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            child,
-          ],
-        ),
-      ),
-    );
-  }
-  
-  /// Multi-select category chips
-  Widget _buildCategorySelection() {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: AppConstants.serviceCategories.keys.map((categoryName) {
-        final isSelected = _selectedCategories.contains(categoryName);
-        final categoryData = AppConstants.serviceCategories[categoryName]!;
-        final minWeight = categoryData['minWeight']!;
-        final minPrice = categoryData['minPrice']!;
-        
-        return FilterChip(
-          selected: isSelected,
-          label: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        children: List.generate(_totalSteps * 2 - 1, (index) {
+          if (index.isOdd) {
+            final stepIndex = index ~/ 2;
+            final isCompleted = _currentStep > stepIndex;
+            return Expanded(
+              child: Container(
+                height: 2,
+                color: isCompleted
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.grey.shade300,
+              ),
+            );
+          }
+          final stepIndex = index ~/ 2;
+          final isActive = stepIndex == _currentStep;
+          final isCompleted = stepIndex < _currentStep;
+          return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                categoryName,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: isSelected ? Colors.white : Colors.black87,
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isCompleted || isActive
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.grey.shade200,
+                ),
+                child: Center(
+                  child: isCompleted
+                      ? const Icon(Icons.check, color: Colors.white, size: 18)
+                      : Text(
+                          '${stepIndex + 1}',
+                          style: TextStyle(
+                            color: isActive ? Colors.white : Colors.grey,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                 ),
               ),
+              const SizedBox(height: 4),
               Text(
-                'Min: ${AppUtils.formatCurrency(minPrice)} • ${minWeight}kg',
+                stepLabels[stepIndex],
                 style: TextStyle(
                   fontSize: 11,
-                  color: isSelected ? Colors.white70 : Colors.grey.shade600,
+                  fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                  color: isActive
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.grey,
                 ),
               ),
             ],
-          ),
-          onSelected: (selected) {
-            setState(() {
-              if (selected) {
-                _selectedCategories.add(categoryName);
-                _categoryWeightControllers[categoryName] = TextEditingController();
-              } else {
-                _selectedCategories.remove(categoryName);
-                _categoryWeightControllers[categoryName]?.dispose();
-                _categoryWeightControllers.remove(categoryName);
-              }
-            });
-          },
-          selectedColor: Theme.of(context).colorScheme.primary,
-          checkmarkColor: Colors.white,
-          labelStyle: const TextStyle(fontSize: 13),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        );
-      }).toList(),
+          );
+        }),
+      ),
     );
   }
-  
-  /// Dynamic weight inputs for each selected category
-  Widget _buildWeightInputs() {
+
+  Widget _buildStepContent() {
+    switch (_currentStep) {
+      case 0:
+        return _buildTypeStep();
+      case 1:
+        return _buildDateStep();
+      case 2:
+        return _buildServiceTypeStep();
+      case 3:
+        return _buildCategoryStep();
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  // â”€â”€ Step 1: Type â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _buildTypeStep() {
     return Column(
-      children: _selectedCategories.map((categoryName) {
-        final controller = _categoryWeightControllers[categoryName]!;
-        final categoryData = AppConstants.serviceCategories[categoryName]!;
-        final minWeight = categoryData['minWeight']!;
-        
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: TextFormField(
-            controller: controller,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              labelText: '$categoryName Weight (kg)',
-              hintText: 'Enter weight',
-              helperText: 'Minimum $minWeight kg',
-              prefixIcon: const Icon(Icons.scale),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              filled: true,
-              fillColor: Colors.grey.shade50,
-            ),
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Please enter weight for $categoryName';
-              }
-              final weight = double.tryParse(value);
-              if (weight == null || weight <= 0) {
-                return 'Please enter a valid weight';
-              }
-              return null;
-            },
-            onChanged: (_) => setState(() {}),
-          ),
-        );
-      }).toList(),
-    );
-  }
-  
-  /// Service selection with chips
-  Widget _buildServiceSelection() {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: AppConstants.serviceTypes.entries.map((entry) {
-        final serviceName = entry.key;
-        final isSelected = _selectedServices.contains(serviceName);
-        
-        return FilterChip(
-          selected: isSelected,
-          label: Text(serviceName),
-          onSelected: (selected) {
-            setState(() {
-              if (selected) {
-                _selectedServices.add(serviceName);
-              } else {
-                _selectedServices.remove(serviceName);
-              }
-            });
-          },
-          selectedColor: Theme.of(context).colorScheme.primaryContainer,
-          checkmarkColor: Theme.of(context).colorScheme.primary,
-        );
-      }).toList(),
-    );
-  }
-  
-  /// Add-ons selection (watches for Delivery selection)
-  Widget _buildAddOnsSelection() {
-    return Column(
-      children: AppConstants.addOns.entries.map((entry) {
-        final addOnName = entry.key;
-        final price = entry.value;
-        final isSelected = _selectedAddOns.containsKey(addOnName);
-        
-        return CheckboxListTile(
-          value: isSelected,
-          onChanged: (selected) {
-            setState(() {
-              if (selected == true) {
-                _selectedAddOns[addOnName] = price;
-                // Special handling for Delivery add-on
-                if (addOnName == 'Delivery Service') {
-                  _isDeliverySelected = true;
-                }
-              } else {
-                _selectedAddOns.remove(addOnName);
-                if (addOnName == 'Delivery Service') {
-                  _isDeliverySelected = false;
-                }
-              }
-            });
-          },
-          title: Text(addOnName),
-          subtitle: Text('+${AppUtils.formatCurrency(price)}'),
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-        );
-      }).toList(),
-    );
-  }
-  
-  /// Conditional Delivery/Pickup fields based on add-on selection
-  Widget _buildDeliveryPickupFields() {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      child: _isDeliverySelected
-          ? _buildDeliveryFields()
-          : _buildPickupFields(),
-    );
-  }
-  
-  /// Delivery address field
-  Widget _buildDeliveryFields() {
-    return Column(
-      key: const ValueKey('delivery'),
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextFormField(
-          controller: _deliveryAddressController,
-          maxLines: 3,
-          decoration: InputDecoration(
-            labelText: 'Delivery Address *',
-            hintText: 'Enter complete delivery address',
-            prefixIcon: const Icon(Icons.location_on),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            filled: true,
-            fillColor: Colors.grey.shade50,
-          ),
-          validator: (value) {
-            if (_isDeliverySelected && (value == null || value.trim().isEmpty)) {
-              return 'Delivery address is required';
-            }
-            return null;
-          },
+        Text(
+          'How would you like your laundry handled?',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+        ),
+        const SizedBox(height: 20),
+        _buildTypeCard(
+          label: 'Pickup',
+          description: 'Drop off your laundry at the shop',
+          icon: Icons.store,
+          value: AppConstants.bookingTypePickup,
+        ),
+        const SizedBox(height: 16),
+        _buildTypeCard(
+          label: 'Delivery',
+          description: 'Your cleaned laundry will be delivered to you',
+          icon: Icons.local_shipping,
+          value: AppConstants.bookingTypeDelivery,
         ),
       ],
     );
   }
-  
-  /// Pickup date and time slot fields
-  Widget _buildPickupFields() {
+
+  Widget _buildTypeCard({
+    required String label,
+    required String description,
+    required IconData icon,
+    required String value,
+  }) {
+    final isSelected = _bookingType == value;
+    final color = Theme.of(context).colorScheme.primary;
+    return GestureDetector(
+      onTap: () => setState(() => _bookingType = value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? color : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
+          color: isSelected ? color.withOpacity(0.08) : Colors.white,
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isSelected ? color : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon,
+                  color: isSelected ? Colors.white : Colors.grey, size: 28),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: isSelected ? color : Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    description,
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+            ),
+            if (isSelected) Icon(Icons.check_circle, color: color, size: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // â”€â”€ Step 2: Date â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _buildDateStep() {
+    if (_bookingType == AppConstants.bookingTypeDelivery) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Enter your delivery address',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _deliveryAddressController,
+            maxLines: 3,
+            decoration: InputDecoration(
+              labelText: 'Delivery Address',
+              hintText: 'Enter your complete delivery address',
+              prefixIcon: const Icon(Icons.location_on),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              filled: true,
+              fillColor: Colors.grey.shade50,
+            ),
+          ),
+        ],
+      );
+    }
+
     return Column(
-      key: const ValueKey('pickup'),
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Pickup Date picker
+        Text(
+          'When would you like to drop off?',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+        ),
+        const SizedBox(height: 20),
         InkWell(
           onTap: _selectDate,
           borderRadius: BorderRadius.circular(12),
           child: InputDecorator(
             decoration: InputDecoration(
-              labelText: 'Pickup Date *',
+              labelText: 'Pickup Date',
               prefixIcon: const Icon(Icons.calendar_today),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+                  borderRadius: BorderRadius.circular(12)),
               filled: true,
               fillColor: Colors.grey.shade50,
             ),
@@ -609,20 +477,15 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
             ),
           ),
         ),
-        
-        // Time Slot selection (appears after date is selected)
         if (_selectedDate != null) ...[
-          const SizedBox(height: 16),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Available Time Slots',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+          const SizedBox(height: 20),
+          Text(
+            'Available Time Slots',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -634,19 +497,19 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
                   slot,
                   style: TextStyle(
                     fontSize: 12,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    fontWeight:
+                        isSelected ? FontWeight.bold : FontWeight.normal,
                     color: isSelected ? Colors.white : Colors.black87,
                   ),
                 ),
                 onSelected: (selected) {
-                  setState(() {
-                    _selectedTimeSlot = selected ? slot : null;
-                  });
+                  setState(() => _selectedTimeSlot = selected ? slot : null);
                 },
                 selectedColor: Theme.of(context).colorScheme.primary,
                 backgroundColor: Colors.grey.shade100,
                 checkmarkColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               );
             }).toList(),
           ),
@@ -654,139 +517,183 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
       ],
     );
   }
-  
-  Widget _buildPriceSummary(Map<String, double> pricing) {
+
+  // â”€â”€ Step 3: Category â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _buildCategoryStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Select categories and enter weights',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+        ),
+        const SizedBox(height: 20),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: AppConstants.serviceCategories.keys.map((name) {
+            final isSelected = _selectedCategories.contains(name);
+            final data = AppConstants.serviceCategories[name]!;
+            return FilterChip(
+              selected: isSelected,
+              label: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    name,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                  Text(
+                    'Min: ${AppUtils.formatCurrency(data[\'minPrice\']!)} â€¢ ${data[\'minWeight\']}kg',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isSelected ? Colors.white70 : Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+              onSelected: (selected) {
+                setState(() {
+                  if (selected) {
+                    _selectedCategories.add(name);
+                    _categoryWeightControllers[name] = TextEditingController();
+                  } else {
+                    _selectedCategories.remove(name);
+                    _categoryWeightControllers[name]?.dispose();
+                    _categoryWeightControllers.remove(name);
+                  }
+                });
+              },
+              selectedColor: Theme.of(context).colorScheme.primary,
+              checkmarkColor: Colors.white,
+              labelStyle: const TextStyle(fontSize: 13),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            );
+          }).toList(),
+        ),
+        if (_selectedCategories.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          Text(
+            'Enter Weights',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 12),
+          ..._selectedCategories.map((name) {
+            final controller = _categoryWeightControllers[name]!;
+            final minWeight = AppConstants.serviceCategories[name]!['minWeight']!;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: TextField(
+                controller: controller,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: '$name Weight (kg)',
+                  hintText: 'Enter weight',
+                  helperText: 'Minimum $minWeight kg',
+                  prefixIcon: const Icon(Icons.scale),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            );
+          }),
+          const SizedBox(height: 20),
+          _buildPriceSummary(),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPriceSummary() {
+    final categories = _buildCategoriesList();
+    final categoryTotal =
+        PricingService.calculateMultipleCategoriesTotal(categories);
+    final grandTotal = categoryTotal + AppConstants.bookingFee;
     return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(
-                  Icons.receipt_long,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
+                Icon(Icons.receipt_long,
+                    color: Theme.of(context).colorScheme.primary),
                 const SizedBox(width: 8),
                 Text(
-                  'Summary',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  'Price Summary',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            
-            // Selected Categories with individual weights
-            if (_selectedCategories.isNotEmpty) ...[
-              Text(
-                'Categories:',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
+            const SizedBox(height: 12),
+            ..._selectedCategories.map((name) {
+              final weight =
+                  double.tryParse(_categoryWeightControllers[name]?.text ?? '0') ??
+                      0.0;
+              final price = weight > 0
+                  ? PricingService.calculateCategoryPrice(
+                      category: name, weight: weight)
+                  : 0.0;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('$name (${weight}kg)',
+                        style: const TextStyle(fontSize: 13)),
+                    Text(AppUtils.formatCurrency(price),
+                        style: const TextStyle(fontSize: 13)),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 8),
-              ..._selectedCategories.map((categoryName) {
-                final controller = _categoryWeightControllers[categoryName];
-                final weight = double.tryParse(controller?.text ?? '0') ?? 0.0;
-                final computedPrice = weight > 0 
-                    ? PricingService.calculateCategoryPrice(
-                        category: categoryName,
-                        weight: weight,
-                      )
-                    : 0.0;
-                
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('  • $categoryName (${weight}kg)'),
-                      Text(
-                        AppUtils.formatCurrency(computedPrice),
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-              const SizedBox(height: 8),
-            ],
-            
-            // Selected Services
-            if (_selectedServices.isNotEmpty) ...[
-              Text(
-                'Services: ${_selectedServices.join(', ')}',
-                style: const TextStyle(fontSize: 13),
-              ),
-              const SizedBox(height: 8),
-            ],
-            
-            // Selected Add-ons with individual prices
-            if (_selectedAddOns.isNotEmpty) ...[
-              ..._selectedAddOns.entries.map((e) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('  • ${e.key}'),
-                      Text(AppUtils.formatCurrency(e.value)),
-                    ],
-                  ),
-                );
-              }),
-              const SizedBox(height: 8),
-            ],
-            
-            const Divider(height: 24, thickness: 1.5),
-            
-            // Pricing Breakdown
-            _buildPriceRow(
-              'Category Total',
-              AppUtils.formatCurrency(pricing['categoryTotal']!),
+              );
+            }),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Divider(),
             ),
-            const SizedBox(height: 8),
-            _buildPriceRow(
-              'Services Total',
-              AppUtils.formatCurrency(pricing['servicesTotal']!),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Booking Fee', style: TextStyle(fontSize: 13)),
+                Text(AppUtils.formatCurrency(AppConstants.bookingFee),
+                    style: const TextStyle(fontSize: 13)),
+              ],
             ),
-            const SizedBox(height: 8),
-            _buildPriceRow(
-              'Add-ons Total',
-              AppUtils.formatCurrency(pricing['addOnsTotal']!),
-            ),
-            const SizedBox(height: 8),
-            _buildPriceRow(
-              'Booking Fee',
-              AppUtils.formatCurrency(pricing['bookingFee']!),
-            ),
-            
-            const Divider(height: 24, thickness: 2),
-            
-            // Grand Total
+            const Divider(height: 16, thickness: 1.5),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'GRAND TOTAL',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  'TOTAL',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
                 Text(
-                  AppUtils.formatCurrency(pricing['grandTotal']!),
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
+                  AppUtils.formatCurrency(grandTotal),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                 ),
               ],
             ),
@@ -795,27 +702,11 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
       ),
     );
   }
-  
-  Widget _buildPriceRow(String label, String value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 14),
-        ),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
-  
-  Widget _buildBottomPaymentButton(BookingState bookingState, Map<String, double> pricing) {
+
+  // â”€â”€ Bottom Navigation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _buildBottomNavigation(BookingState bookingState, bool isLastStep) {
+    final total = _calculateTotal();
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -829,42 +720,53 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
         ],
       ),
       child: SafeArea(
-        child: SizedBox(
-          width: double.infinity,
-          height: 50,
-          child: ElevatedButton(
-            onPressed: bookingState.isLoading ? null : _proceedToPayment,
-            style: ElevatedButton.styleFrom(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+        child: Row(
+          children: [
+            if (_currentStep > 0) ...[
+              OutlinedButton(
+                onPressed: _prevStep,
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Back'),
+              ),
+              const SizedBox(width: 12),
+            ],
+            Expanded(
+              child: ElevatedButton(
+                onPressed: bookingState.isLoading
+                    ? null
+                    : isLastStep
+                        ? _proceedToPayment
+                        : _nextStep,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: bookingState.isLoading
+                    ? const SizedBox(
+                        height: 22,
+                        width: 22,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
+                      )
+                    : Text(
+                        isLastStep
+                            ? 'Proceed to Payment \u2022 ${AppUtils.formatCurrency(total)}'
+                            : 'Next',
+                        style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
               ),
             ),
-            child: bookingState.isLoading
-                ? const SizedBox(
-                    height: 24,
-                    width: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.payment),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Proceed to Payment • ${AppUtils.formatCurrency(pricing['grandTotal']!)}',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
+          ],
         ),
       ),
     );
   }
+
 }

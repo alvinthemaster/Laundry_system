@@ -1,4 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:laundry_system/core/services/notification_service.dart';
+import 'package:laundry_system/core/services/booking_status_listener.dart';
 import 'package:laundry_system/features/auth/data/datasources/auth_data_source.dart';
 import 'package:laundry_system/features/auth/data/repositories/auth_repository_impl.dart';
 import 'package:laundry_system/features/auth/domain/entities/user_entity.dart';
@@ -146,8 +148,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
         state = state.copyWith(isLoading: false, error: failure.message);
         return false;
       },
-      (user) {
+      (user) async {
         state = state.copyWith(isLoading: false, user: user);
+        // Save FCM token for push notifications
+        await NotificationService().saveFCMToken(user.uid);
+        // Start listening for booking status changes
+        BookingStatusListener().startListening(user.uid);
         return true;
       },
     );
@@ -156,6 +162,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
   // ---- Logout ----
   Future<void> logout() async {
     state = state.copyWith(isLoading: true);
+    // Stop listening for booking changes
+    BookingStatusListener().stopListening();
+    // Remove FCM token before logout
+    if (state.user != null) {
+      await NotificationService().removeFCMToken(state.user!.uid);
+    }
     await _logoutUseCase();
     state = const AuthState();
   }
@@ -166,9 +178,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final result = await _getCurrentUserUseCase();
     result.fold(
       (failure) => state = state.copyWith(isLoading: false, error: failure.message),
-      (user) {
+      (user) async {
         if (user != null) {
           state = state.copyWith(isLoading: false, user: user);
+          // Save FCM token when user is loaded
+          await NotificationService().saveFCMToken(user.uid);
+          // Start listening for booking status changes
+          BookingStatusListener().startListening(user.uid);
         } else {
           state = state.copyWith(isLoading: false, clearUser: true);
         }

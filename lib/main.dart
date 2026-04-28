@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:laundry_system/core/theme/app_theme.dart';
+import 'package:laundry_system/core/services/notification_service.dart';
 import 'package:laundry_system/features/auth/presentation/pages/login_page.dart';
 import 'package:laundry_system/features/auth/presentation/providers/auth_provider.dart';
 import 'package:laundry_system/features/booking/presentation/pages/home_page.dart';
@@ -14,6 +15,9 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  
+  // Initialize Notification Service
+  await NotificationService().initialize();
   
   runApp(
     const ProviderScope(

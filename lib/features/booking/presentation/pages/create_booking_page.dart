@@ -441,6 +441,42 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
               fillColor: Colors.grey.shade50,
             ),
           ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.red.shade200),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.location_on, size: 18, color: Colors.red.shade700),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      style: TextStyle(
+                        color: Colors.red.shade900,
+                        fontSize: 13,
+                      ),
+                      children: const [
+                        TextSpan(
+                          text: 'Delivery Area Notice: ',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        TextSpan(
+                          text:
+                              'Our delivery service is available within Glan area only. Please ensure your address is within this coverage area before proceeding.',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       );
     }

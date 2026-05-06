@@ -27,6 +27,10 @@ class BookingModel extends BookingEntity {
     super.slotFee,
     super.deliveryFee,
     super.customerName,
+    super.driverId,
+    super.driverName,
+    super.driverContact,
+    super.driverAccepted,
   });
 
   factory BookingModel.fromJson(Map<String, dynamic> json) {
@@ -69,7 +73,7 @@ class BookingModel extends BookingEntity {
       addOnsTotal: addOnsTotal,
       bookingFee: (json['bookingFee'] as num?)?.toDouble() ?? 0.0,
       totalAmount: (json['totalAmount'] as num?)?.toDouble() ?? 0.0,
-      bookingType: json['bookingType'] as String? ?? 'pickup',
+      bookingType: (json['orderType'] ?? json['bookingType']) as String? ?? 'pickup',
       deliveryAddress: json['deliveryAddress'] as String?,
       pickupDate: json['pickupDate'] != null
           ? DateTime.parse(json['pickupDate'] as String)
@@ -94,6 +98,10 @@ class BookingModel extends BookingEntity {
           ? (json['deliveryFee'] as num).toDouble()
           : 0.0,
       customerName: json['customerName'] as String?,
+      driverId: json['driverId'] as String?,
+      driverName: json['driverName'] as String?,
+      driverContact: json['driverContact'] as String?,
+      driverAccepted: json['driverAccepted'] as bool?,
     );
   }
 
@@ -124,6 +132,10 @@ class BookingModel extends BookingEntity {
       'slotFee': slotFee,
       'deliveryFee': deliveryFee,
       if (customerName != null) 'customerName': customerName,
+      if (driverId != null) 'driverId': driverId,
+      if (driverName != null) 'driverName': driverName,
+      if (driverContact != null) 'driverContact': driverContact,
+      if (driverAccepted != null) 'driverAccepted': driverAccepted,
       'createdAt': createdAt.toIso8601String(),
     };
   }
@@ -155,6 +167,10 @@ class BookingModel extends BookingEntity {
       slotFee: entity.slotFee,
       deliveryFee: entity.deliveryFee,
       customerName: entity.customerName,
+      driverId: entity.driverId,
+      driverName: entity.driverName,
+      driverContact: entity.driverContact,
+      driverAccepted: entity.driverAccepted,
     );
   }
 }

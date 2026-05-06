@@ -27,9 +27,15 @@ class UserModel extends UserEntity {
 
     return UserModel(
       uid: (json['uid'] as String?) ?? '',
-      fullName: (json['fullName'] as String?) ?? '',
+      fullName: (json['fullName'] as String?)?.isNotEmpty == true
+          ? json['fullName'] as String
+          : (json['name'] as String?)?.isNotEmpty == true
+              ? json['name'] as String
+              : (json['displayName'] as String?) ?? '',
       email: (json['email'] as String?) ?? '',
-      phoneNumber: (json['phoneNumber'] as String?) ?? '',
+      phoneNumber: (json['phoneNumber'] as String?)?.isNotEmpty == true
+          ? json['phoneNumber'] as String
+          : (json['phone'] as String?) ?? (json['contact'] as String?) ?? '',
       address: (json['address'] as String?) ?? '',
       role: (json['role'] as String?) ?? 'customer',
       createdAt: createdAt,

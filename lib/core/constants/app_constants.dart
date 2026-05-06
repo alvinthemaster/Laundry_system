@@ -13,6 +13,7 @@ class AppConstants {
   // User Roles
   static const String roleCustomer = 'customer';
   static const String roleAdmin = 'admin';
+  static const String roleDriver = 'driver';
   
   // Booking Statuses
   static const String statusPending = 'Pending';

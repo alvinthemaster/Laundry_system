@@ -48,6 +48,18 @@ final getBookedSlotsUseCaseProvider = Provider<GetBookedSlotsUseCase>((ref) {
   return GetBookedSlotsUseCase(ref.read(bookingRepositoryProvider));
 });
 
+final getDriverBookingsUseCaseProvider = Provider<GetDriverBookingsUseCase>((ref) {
+  return GetDriverBookingsUseCase(ref.read(bookingRepositoryProvider));
+});
+
+final notifyCustomerArrivedUseCaseProvider = Provider<NotifyCustomerArrivedUseCase>((ref) {
+  return NotifyCustomerArrivedUseCase(ref.read(bookingRepositoryProvider));
+});
+
+final updateDeliveryStatusUseCaseProvider = Provider<UpdateDeliveryStatusUseCase>((ref) {
+  return UpdateDeliveryStatusUseCase(ref.read(bookingRepositoryProvider));
+});
+
 // Booking State
 class BookingState {
   final bool isLoading;
@@ -85,6 +97,9 @@ class BookingNotifier extends StateNotifier<BookingState> {
   final CancelBookingUseCase _cancelBookingUseCase;
   final ReschedulePickupUseCase _reschedulePickupUseCase;
   final GetBookedSlotsUseCase _getBookedSlotsUseCase;
+  final GetDriverBookingsUseCase _getDriverBookingsUseCase;
+  final NotifyCustomerArrivedUseCase _notifyCustomerArrivedUseCase;
+  final UpdateDeliveryStatusUseCase _updateDeliveryStatusUseCase;
   
   BookingNotifier(
     this._createBookingUseCase,
@@ -93,6 +108,9 @@ class BookingNotifier extends StateNotifier<BookingState> {
     this._cancelBookingUseCase,
     this._reschedulePickupUseCase,
     this._getBookedSlotsUseCase,
+    this._getDriverBookingsUseCase,
+    this._notifyCustomerArrivedUseCase,
+    this._updateDeliveryStatusUseCase,
   ) : super(const BookingState());
   
   Future<bool> createBooking({
@@ -234,6 +252,9 @@ class BookingNotifier extends StateNotifier<BookingState> {
               slotFee: booking.slotFee,
               deliveryFee: booking.deliveryFee,
               customerName: booking.customerName,
+              driverId: booking.driverId,
+              driverName: booking.driverName,
+              driverContact: booking.driverContact,
             );
           }
           return booking;
@@ -297,6 +318,9 @@ class BookingNotifier extends StateNotifier<BookingState> {
               slotFee: booking.slotFee,
               deliveryFee: booking.deliveryFee,
               customerName: booking.customerName,
+              driverId: booking.driverId,
+              driverName: booking.driverName,
+              driverContact: booking.driverContact,
             );
           }
           return booking;
@@ -305,6 +329,89 @@ class BookingNotifier extends StateNotifier<BookingState> {
         state = state.copyWith(isLoading: false, bookings: updatedBookings);
         return true;
       },
+    );
+  }
+
+  Future<void> getDriverBookings(String driverId) async {
+    if (driverId.isEmpty) return;
+    state = state.copyWith(isLoading: true, error: null);
+    final result = await _getDriverBookingsUseCase(driverId);
+    result.fold(
+      (failure) => state = state.copyWith(isLoading: false, error: failure.toString()),
+      (bookings) => state = state.copyWith(isLoading: false, bookings: bookings),
+    );
+  }
+
+  Future<bool> updateDeliveryStatus({
+    required String bookingId,
+    required String status,
+  }) async {
+    final result = await _updateDeliveryStatusUseCase(
+      bookingId: bookingId,
+      status: status,
+    );
+    return result.fold(
+      (failure) {
+        state = state.copyWith(error: failure.toString());
+        return false;
+      },
+      (_) {
+        // Update status in local list immediately
+        final updated = state.bookings.map((b) {
+          if (b.bookingId == bookingId) {
+            return BookingEntity(
+              bookingId: b.bookingId,
+              userId: b.userId,
+              categories: b.categories,
+              categoryTotal: b.categoryTotal,
+              selectedAddOns: b.selectedAddOns,
+              addOnsTotal: b.addOnsTotal,
+              bookingFee: b.bookingFee,
+              totalAmount: b.totalAmount,
+              bookingType: b.bookingType,
+              deliveryAddress: b.deliveryAddress,
+              pickupDate: b.pickupDate,
+              timeSlot: b.timeSlot,
+              pickupTime: b.pickupTime,
+              serviceType: b.serviceType,
+              status: status,
+              paymentStatus: b.paymentStatus,
+              paymentMethod: b.paymentMethod,
+              specialInstructions: b.specialInstructions,
+              createdAt: b.createdAt,
+              machineId: b.machineId,
+              machineName: b.machineName,
+              slotId: b.slotId,
+              slotFee: b.slotFee,
+              deliveryFee: b.deliveryFee,
+              customerName: b.customerName,
+              driverId: b.driverId,
+              driverName: b.driverName,
+              driverContact: b.driverContact,
+            );
+          }
+          return b;
+        }).toList();
+        state = state.copyWith(bookings: updated);
+        return true;
+      },
+    );
+  }
+
+  Future<bool> notifyCustomerArrived({
+    required String bookingId,
+    required String customerId,
+  }) async {
+    final result = await _notifyCustomerArrivedUseCase(
+      bookingId: bookingId,
+      customerId: customerId,
+    );
+    return result.fold(
+      (failure) {
+        state = state.copyWith(error: failure.toString());
+        return false;
+      },
+      (_) => true,
     );
   }
 }
@@ -318,6 +425,9 @@ final bookingProvider = StateNotifierProvider<BookingNotifier, BookingState>((re
     ref.read(cancelBookingUseCaseProvider),
     ref.read(reschedulePickupUseCaseProvider),
     ref.read(getBookedSlotsUseCaseProvider),
+    ref.read(getDriverBookingsUseCaseProvider),
+    ref.read(notifyCustomerArrivedUseCaseProvider),
+    ref.read(updateDeliveryStatusUseCaseProvider),
   );
 });
 

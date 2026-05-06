@@ -556,6 +556,60 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
 
   // â”€â”€ Step 3: Category â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+  Widget _buildServiceTypeStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Select your service type',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+        ),
+        const SizedBox(height: 20),
+        ...AppConstants.serviceTypeOptions.map((type) {
+          final isSelected = _serviceType == type;
+          final color = Theme.of(context).colorScheme.primary;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: GestureDetector(
+              onTap: () => setState(() => _serviceType = type),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isSelected ? color : Colors.grey.shade300,
+                    width: isSelected ? 2 : 1,
+                  ),
+                  color: isSelected
+                      ? color.withOpacity(0.08)
+                      : Colors.white,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        type,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: isSelected ? color : Colors.black87,
+                        ),
+                      ),
+                    ),
+                    if (isSelected) Icon(Icons.check_circle, color: color),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
   Widget _buildCategoryStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -573,6 +627,8 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
           children: AppConstants.serviceCategories.keys.map((name) {
             final isSelected = _selectedCategories.contains(name);
             final data = AppConstants.serviceCategories[name]!;
+            final minPrice = AppUtils.formatCurrency(data['minPrice'] ?? 0.0);
+            final minWeight = data['minWeight'] ?? 0.0;
             return FilterChip(
               selected: isSelected,
               label: Column(
@@ -587,7 +643,7 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
                     ),
                   ),
                   Text(
-                    'Min: ${AppUtils.formatCurrency(data[\'minPrice\']!)} â€¢ ${data[\'minWeight\']}kg',
+                    'Min: $minPrice - ${minWeight}kg',
                     style: TextStyle(
                       fontSize: 11,
                       color: isSelected ? Colors.white70 : Colors.grey.shade600,

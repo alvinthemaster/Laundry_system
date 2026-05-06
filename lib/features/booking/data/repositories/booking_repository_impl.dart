@@ -118,4 +118,43 @@ class BookingRepositoryImpl implements BookingRepository {
       return Either.left(ServerFailure(e.toString()));
     }
   }
+
+  @override
+  Future<Either<Failure, List<BookingEntity>>> getDriverBookings(String driverId) async {
+    try {
+      final bookings = await dataSource.getDriverBookings(driverId);
+      return Either.right(bookings);
+    } catch (e) {
+      return Either.left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> updateDeliveryStatus({
+    required String bookingId,
+    required String status,
+  }) async {
+    try {
+      await dataSource.updateDeliveryStatus(bookingId: bookingId, status: status);
+      return Either.right(null);
+    } catch (e) {
+      return Either.left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> notifyCustomerArrived({
+    required String bookingId,
+    required String customerId,
+  }) async {
+    try {
+      await dataSource.notifyCustomerArrived(
+        bookingId: bookingId,
+        customerId: customerId,
+      );
+      return Either.right(null);
+    } catch (e) {
+      return Either.left(ServerFailure(e.toString()));
+    }
+  }
 }

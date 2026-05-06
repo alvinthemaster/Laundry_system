@@ -206,6 +206,52 @@ class BookingDetailsPage extends ConsumerWidget {
                     const SizedBox(height: 12),
                   ],
 
+                  // Driver info for delivery bookings
+                  if (booking.bookingType == 'delivery' &&
+                      (booking.driverName != null ||
+                          booking.driverContact != null)) ...[
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.delivery_dining,
+                                  size: 18,
+                                  color: Colors.orange.shade700),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Assigned Driver',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange.shade800,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (booking.driverName != null) ...[
+                            const SizedBox(height: 8),
+                            _row(context, Icons.person, 'Driver Name',
+                                booking.driverName!),
+                          ],
+                          if (booking.driverContact != null) ...[
+                            const SizedBox(height: 8),
+                            _row(context, Icons.phone, 'Driver Contact',
+                                booking.driverContact!),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
                   if (booking.pickupDate != null) ...[
                     _row(
                       context,

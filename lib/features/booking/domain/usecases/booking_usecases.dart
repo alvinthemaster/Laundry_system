@@ -112,3 +112,42 @@ class ReschedulePickupUseCase {
     );
   }
 }
+
+class GetDriverBookingsUseCase {
+  final BookingRepository repository;
+
+  const GetDriverBookingsUseCase(this.repository);
+
+  Future<Either<dynamic, List<BookingEntity>>> call(String driverId) {
+    return repository.getDriverBookings(driverId);
+  }
+}
+
+class UpdateDeliveryStatusUseCase {
+  final BookingRepository repository;
+
+  const UpdateDeliveryStatusUseCase(this.repository);
+
+  Future<Either<dynamic, void>> call({
+    required String bookingId,
+    required String status,
+  }) {
+    return repository.updateDeliveryStatus(bookingId: bookingId, status: status);
+  }
+}
+
+class NotifyCustomerArrivedUseCase {
+  final BookingRepository repository;
+
+  const NotifyCustomerArrivedUseCase(this.repository);
+
+  Future<Either<dynamic, void>> call({
+    required String bookingId,
+    required String customerId,
+  }) {
+    return repository.notifyCustomerArrived(
+      bookingId: bookingId,
+      customerId: customerId,
+    );
+  }
+}

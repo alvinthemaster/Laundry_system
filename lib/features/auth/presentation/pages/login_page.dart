@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:laundry_system/core/constants/app_constants.dart';
 import 'package:laundry_system/core/utils/app_utils.dart';
 import 'package:laundry_system/features/auth/presentation/providers/auth_provider.dart';
 import 'package:laundry_system/features/auth/presentation/pages/register_page.dart';
 import 'package:laundry_system/features/auth/presentation/pages/forgot_password_page.dart';
+import 'package:laundry_system/features/booking/presentation/pages/driver_dashboard_page.dart';
 import 'package:laundry_system/features/booking/presentation/pages/home_page.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
@@ -38,8 +40,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
     if (success) {
       AppUtils.showSnackBar(context, 'Login successful!');
+      final userRole = ref.read(authProvider).user?.role ?? '';
+      final destination = userRole == AppConstants.roleDriver
+          ? const DriverDashboardPage()
+          : const HomePage();
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const HomePage()),
+        MaterialPageRoute(builder: (_) => destination),
         (route) => false,
       );
     } else {

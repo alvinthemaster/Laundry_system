@@ -160,7 +160,9 @@ class AuthDataSourceImpl implements AuthDataSource {
           throw Exception('User profile not found. Please contact support.');
         }
 
-        return UserModel.fromFirestore(doc.data()!);
+        // Always inject the Firebase Auth UID — document data may not store it
+        // (e.g. admin-created accounts). This guarantees user.uid is never empty.
+        return UserModel.fromFirestore({...doc.data()!, 'uid': user.uid});
       } catch (firestoreError) {
         // If Firestore fails, still sign out and throw error
         await _firebaseAuth.signOut();
@@ -190,11 +192,10 @@ class AuthDataSourceImpl implements AuthDataSource {
       final user = _firebaseAuth.currentUser;
       if (user == null) return null;
 
-      // Verify email is confirmed
-      final isVerified = user.emailVerified == true;
-      if (!isVerified) {
-        return null;
-      }
+      // Do NOT block on emailVerified here — admin-created accounts
+      // (driver, admin roles) may have emailVerified = false in Firebase Auth
+      // even though they are legitimate accounts.
+      // Email verification is enforced only for customer self-registration in login().
 
       final doc = await _firestore
           .collection(AppConstants.usersCollection)
@@ -205,9 +206,9 @@ class AuthDataSourceImpl implements AuthDataSource {
         return null;
       }
 
-      return UserModel.fromFirestore(doc.data()!);
+      // Always inject the Firebase Auth UID so user.uid is never empty
+      return UserModel.fromFirestore({...doc.data()!, 'uid': user.uid});
     } catch (e) {
-      // Log but don't throw - return null for safety
       print('getCurrentUser error: $e');
       return null;
     }

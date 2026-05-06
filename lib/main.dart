@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:laundry_system/core/constants/app_constants.dart';
 import 'package:laundry_system/core/theme/app_theme.dart';
 import 'package:laundry_system/core/services/notification_service.dart';
 import 'package:laundry_system/features/auth/presentation/pages/login_page.dart';
 import 'package:laundry_system/features/auth/presentation/providers/auth_provider.dart';
+import 'package:laundry_system/features/booking/presentation/pages/driver_dashboard_page.dart';
 import 'package:laundry_system/features/booking/presentation/pages/home_page.dart';
 import 'firebase_options.dart';
 
@@ -87,8 +89,12 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
             .timeout(const Duration(seconds: 5));
 
         if (mounted) {
+          final userRole = ref.read(authProvider).user?.role ?? '';
+          final destination = userRole == AppConstants.roleDriver
+              ? const DriverDashboardPage()
+              : const HomePage();
           Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const HomePage()),
+            MaterialPageRoute(builder: (_) => destination),
             (route) => false,
           );
         }

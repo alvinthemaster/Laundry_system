@@ -34,6 +34,11 @@ abstract class BookingDataSource {
   });
 
   Future<List<BookingModel>> getUserBookings(String userId);
+  Future<List<BookingModel>> getDriverBookings(String driverId);
+  Future<void> updateDeliveryStatus({
+    required String bookingId,
+    required String status,
+  });
   Future<BookingModel> getBookingById(String bookingId);
   Future<void> cancelBooking(String bookingId);
   Future<void> reschedulePickup({
@@ -48,6 +53,10 @@ abstract class BookingDataSource {
     required String userId,
     required double amount,
     required String method,
+  });
+  Future<void> notifyCustomerArrived({
+    required String bookingId,
+    required String customerId,
   });
 }
 
@@ -335,4 +344,85 @@ class BookingDataSourceImpl implements BookingDataSource {
       throw Exception('Failed to reschedule pickup: $e');
     }
   }
+
+  @override
+  Future<List<BookingModel>> getDriverBookings(String driverId) async {
+    if (driverId.isEmpty) return [];
+
+    // Query ONLY on driverId — single-field index, no composite index needed.
+    // Filter for delivery client-side to handle both 'bookingType' and
+    // 'orderType' field names (older bookings use orderType).
+    final querySnapshot = await _firestore
+        .collection(AppConstants.bookingsCollection)
+        .where('driverId', isEqualTo: driverId)
+        .get();
+
+    final bookings = querySnapshot.docs
+        .where((doc) {
+          final data = doc.data();
+          final type = (data['bookingType'] ?? data['orderType'] ?? '').toString();
+          return type == 'delivery';
+        })
+        .map((doc) => BookingModel.fromJson({...doc.data(), 'bookingId': doc.id}))
+        .toList();
+
+    bookings.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return bookings;
+  }
+
+  @override
+  Future<void> updateDeliveryStatus({
+    required String bookingId,
+    required String status,
+  }) async {
+    try {
+      await _firestore
+          .collection(AppConstants.bookingsCollection)
+          .doc(bookingId)
+          .update({
+        'status': status,
+        'statusUpdatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      throw Exception('Failed to update delivery status: $e');
+    }
+  }
+
+  @override
+  Future<void> notifyCustomerArrived({
+    required String bookingId,
+    required String customerId,
+  }) async {
+    try {
+      final batch = _firestore.batch();
+
+      // Mark booking with riderArrivedAt timestamp
+      final bookingRef = _firestore
+          .collection(AppConstants.bookingsCollection)
+          .doc(bookingId);
+      batch.update(bookingRef, {
+        'riderArrivedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Write a notification document for the customer
+      final notifRef = _firestore
+          .collection(AppConstants.usersCollection)
+          .doc(customerId)
+          .collection('notifications')
+          .doc();
+      batch.set(notifRef, {
+        'type': 'rider_arrived',
+        'bookingId': bookingId,
+        'title': 'Rider Has Arrived!',
+        'body': 'Your rider has arrived at your location. Please prepare your laundry.',
+        'createdAt': FieldValue.serverTimestamp(),
+        'read': false,
+      });
+
+      await batch.commit();
+    } catch (e) {
+      throw Exception('Failed to send arrived notification: $e');
+    }
+  }
 }
+

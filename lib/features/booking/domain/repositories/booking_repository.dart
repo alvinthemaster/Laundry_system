@@ -32,7 +32,22 @@ abstract class BookingRepository {
   
   // Get user bookings
   Future<Either<Failure, List<BookingEntity>>> getUserBookings(String userId);
-  
+
+  // Get bookings assigned to a driver by driverId
+  Future<Either<Failure, List<BookingEntity>>> getDriverBookings(String driverId);
+
+  // Update delivery status (Pickup / Out for Delivery / Delivered)
+  Future<Either<Failure, void>> updateDeliveryStatus({
+    required String bookingId,
+    required String status,
+  });
+
+  // Notify customer that rider has arrived
+  Future<Either<Failure, void>> notifyCustomerArrived({
+    required String bookingId,
+    required String customerId,
+  });
+
   // Get booking by ID
   Future<Either<Failure, BookingEntity>> getBookingById(String bookingId);
   

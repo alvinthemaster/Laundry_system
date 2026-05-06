@@ -35,6 +35,12 @@ class BookingEntity {
   // Customer display name (stored for admin visibility)
   final String? customerName;
 
+  // Driver info (set by admin/driver for delivery bookings)
+  final String? driverId;
+  final String? driverName;
+  final String? driverContact;
+  final bool? driverAccepted; // null = pending, true = accepted, false = declined
+
   const BookingEntity({
     required this.bookingId,
     required this.userId,
@@ -61,5 +67,9 @@ class BookingEntity {
     this.slotFee = 0.0,
     this.deliveryFee = 0.0,
     this.customerName,
+    this.driverId,
+    this.driverName,
+    this.driverContact,
+    this.driverAccepted,
   });
 }

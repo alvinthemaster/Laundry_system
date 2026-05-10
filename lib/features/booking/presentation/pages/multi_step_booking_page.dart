@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:laundry_system/core/constants/app_constants.dart';
+import 'package:laundry_system/core/services/delivery_price_service.dart';
 import 'package:laundry_system/core/utils/app_utils.dart';
 import 'package:laundry_system/features/auth/presentation/providers/auth_provider.dart';
 import 'package:laundry_system/features/booking/data/models/machine_model.dart';
@@ -23,7 +24,11 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
 
   // Step 1: Booking Type
   String _bookingType = AppConstants.bookingTypePickup;
-  final _deliveryAddressController = TextEditingController();
+  String? _selectedDeliveryAddress;
+  List<DeliveryPriceOption> _deliveryAddressOptions = [];
+  bool _isLoadingDeliveryAddresses = false;
+  double _deliveryFeeFromDb = AppConstants.deliveryFee;
+  bool _isLoadingDeliveryFee = false;
   DateTime? _pickupDate; // When customer will pick up their laundry
 
   // Step 2: Booking Date
@@ -45,8 +50,13 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
   bool _isLoadingSlots = false;
 
   @override
+  void initState() {
+    super.initState();
+    _loadDeliveryAddressOptions();
+  }
+
+  @override
   void dispose() {
-    _deliveryAddressController.dispose();
     super.dispose();
   }
 
@@ -56,12 +66,9 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
         (sum, a) => sum + ((a['price'] as num?)?.toDouble() ?? 0.0),
       );
 
-  double get _slotFee =>
-      _selectedSlot != null ? AppConstants.slotRate : 0.0;
-
   double get _deliveryFee =>
       _bookingType == AppConstants.bookingTypeDelivery
-          ? AppConstants.deliveryFee
+        ? _deliveryFeeFromDb
           : 0.0;
 
   double get _bookingFee => AppConstants.bookingFee;
@@ -73,7 +80,15 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
     switch (_currentStep) {
       case 0: // Booking Type
         if (_bookingType == AppConstants.bookingTypeDelivery &&
-            _deliveryAddressController.text.trim().isEmpty) {
+            _selectedDeliveryAddress == null) {
+          return false;
+        }
+        if (_bookingType == AppConstants.bookingTypeDelivery &&
+            _isLoadingDeliveryAddresses) {
+          return false;
+        }
+        if (_bookingType == AppConstants.bookingTypeDelivery &&
+            _isLoadingDeliveryFee) {
           return false;
         }
         return true;
@@ -119,6 +134,14 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
   String _getValidationMessage() {
     switch (_currentStep) {
       case 0:
+        if (_bookingType == AppConstants.bookingTypeDelivery &&
+            _isLoadingDeliveryAddresses) {
+          return 'Loading delivery addresses. Please wait...';
+        }
+        if (_bookingType == AppConstants.bookingTypeDelivery &&
+            _isLoadingDeliveryFee) {
+          return 'Loading delivery fee. Please wait...';
+        }
         return 'Please enter a delivery address';
       case 1:
         if (_selectedDate == null) return 'Please select a booking date';
@@ -130,6 +153,35 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
       default:
         return 'Please complete all required fields';
     }
+  }
+
+  Future<void> _loadDeliveryFeeForAddress(String address) async {
+    setState(() => _isLoadingDeliveryFee = true);
+    final fee = await DeliveryPriceService.getDeliveryFeeForAddress(
+      address,
+      fallback: AppConstants.deliveryFee,
+    );
+    if (!mounted) return;
+    setState(() {
+      _deliveryFeeFromDb = fee;
+      _isLoadingDeliveryFee = false;
+    });
+  }
+
+  Future<void> _loadDeliveryAddressOptions() async {
+    setState(() => _isLoadingDeliveryAddresses = true);
+    final options = await DeliveryPriceService.getDeliveryPriceOptions();
+    if (!mounted) return;
+
+    setState(() {
+      _deliveryAddressOptions = options;
+      _isLoadingDeliveryAddresses = false;
+      if (_selectedDeliveryAddress != null &&
+          !_deliveryAddressOptions
+              .any((e) => e.address == _selectedDeliveryAddress)) {
+        _selectedDeliveryAddress = null;
+      }
+    });
   }
 
   Future<void> _loadMachinesAndSlots() async {
@@ -198,6 +250,16 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
   Future<void> _confirmBooking() async {
     if (!_canProceed()) return;
 
+    if (_bookingType == AppConstants.bookingTypeDelivery &&
+        _isLoadingDeliveryFee) {
+      AppUtils.showSnackBar(
+        context,
+        'Delivery fee is still loading. Please wait a moment.',
+        isError: true,
+      );
+      return;
+    }
+
     // Navigate to payment page
     final paymentMethod = await Navigator.of(context).push<String>(
       MaterialPageRoute(
@@ -240,7 +302,7 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
                 serviceType: _serviceType,
                 deliveryAddress: _bookingType ==
                         AppConstants.bookingTypeDelivery
-                    ? _deliveryAddressController.text.trim()
+                    ? _selectedDeliveryAddress
                     : null,
                 pickupDate: _bookingType == AppConstants.bookingTypePickup
                     ? _pickupDate
@@ -249,6 +311,7 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
                 totalAmount: _totalAmount,
                 deliveryFee: _deliveryFee,
                 customerName: user.fullName,
+                customerPhone: user.phoneNumber,
               );
 
       if (mounted) {
@@ -467,6 +530,7 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
           onTap: () {
             setState(() {
               _bookingType = AppConstants.bookingTypePickup;
+              _isLoadingDeliveryFee = false;
             });
           },
         ),
@@ -476,10 +540,16 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
           title: 'Delivery',
           subtitle: 'We deliver your laundry to your address',
           isSelected: _bookingType == AppConstants.bookingTypeDelivery,
-          onTap: () {
+          onTap: () async {
             setState(() {
               _bookingType = AppConstants.bookingTypeDelivery;
             });
+            if (_deliveryAddressOptions.isEmpty && !_isLoadingDeliveryAddresses) {
+              await _loadDeliveryAddressOptions();
+            }
+            if (_selectedDeliveryAddress != null) {
+              await _loadDeliveryFeeForAddress(_selectedDeliveryAddress!);
+            }
           },
         ),
 
@@ -493,17 +563,54 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
             ),
           ),
           const SizedBox(height: 8),
-          TextField(
-            controller: _deliveryAddressController,
-            maxLines: 3,
+          DropdownButtonFormField<String>(
+            value: _selectedDeliveryAddress,
+            isExpanded: true,
             decoration: InputDecoration(
-              hintText: 'Enter your full delivery address',
+              hintText: _isLoadingDeliveryAddresses
+                  ? 'Loading delivery addresses...'
+                  : 'Select your delivery address',
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
               prefixIcon: const Icon(Icons.location_on),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
             ),
+            items: _deliveryAddressOptions
+                .map((option) => DropdownMenuItem(
+                      value: option.address,
+                      child: Text(option.address),
+                    ))
+                .toList(),
+            onTap: () {
+              if (_deliveryAddressOptions.isEmpty && !_isLoadingDeliveryAddresses) {
+                _loadDeliveryAddressOptions();
+              }
+            },
+            onChanged: _isLoadingDeliveryAddresses
+                ? null
+                : (value) async {
+              setState(() => _selectedDeliveryAddress = value);
+              if (value != null) {
+                final match = _deliveryAddressOptions.where((e) => e.address == value);
+                if (match.isNotEmpty) {
+                  setState(() => _deliveryFeeFromDb = match.first.price);
+                } else {
+                  await _loadDeliveryFeeForAddress(value);
+                }
+              }
+            },
           ),
+          if (!_isLoadingDeliveryAddresses && _deliveryAddressOptions.isEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              'No delivery addresses found in Firestore (delivery_prices).',
+              style: TextStyle(
+                color: Colors.red.shade700,
+                fontSize: 12,
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.all(12),
@@ -517,12 +624,35 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
                 Icon(Icons.info_outline,
                     size: 18, color: Colors.orange.shade700),
                 const SizedBox(width: 8),
-                Text(
-                  'Delivery fee: ${AppUtils.formatCurrency(AppConstants.deliveryFee)}',
-                  style: TextStyle(
-                    color: Colors.orange.shade900,
-                    fontSize: 13,
-                  ),
+                Expanded(
+                  child: _isLoadingDeliveryFee
+                      ? Row(
+                          children: [
+                            SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.orange.shade700,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Loading delivery fee...',
+                              style: TextStyle(
+                                color: Colors.orange.shade900,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        )
+                      : Text(
+                          'Delivery fee: ${AppUtils.formatCurrency(_deliveryFee)}',
+                          style: TextStyle(
+                            color: Colors.orange.shade900,
+                            fontSize: 13,
+                          ),
+                        ),
                 ),
               ],
             ),
@@ -548,7 +678,7 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
                         color: Colors.red.shade900,
                         fontSize: 13,
                       ),
-                      children: const [
+                      children: [
                         TextSpan(
                           text: 'Delivery Area Notice: ',
                           style: TextStyle(fontWeight: FontWeight.bold),
@@ -556,6 +686,10 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
                         TextSpan(
                           text:
                               'Our delivery service is available within Glan area only. Please ensure your address is within this coverage area before proceeding.',
+                        ),
+                        TextSpan(
+                          text: '\nCurrent Delivery Fee: ${AppUtils.formatCurrency(_deliveryFee)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
@@ -1095,403 +1229,6 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
         return Icons.local_laundry_service;
     }
   }
-
-  // ============================================================
-  // Step 4: Machine & Time Slot Selection
-  // ============================================================
-  Widget _buildStep4MachineSlot(ThemeData theme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Select Machine & Time Slot',
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Choose an available machine and time slot for ${DateFormat('MMM d, yyyy').format(_selectedDate!)}',
-          style: TextStyle(color: Colors.grey.shade600),
-        ),
-        const SizedBox(height: 16),
-
-        // Machine type filter
-        Text(
-          'Filter by Machine Type',
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          children: [
-            _FilterChip(
-              label: 'All',
-              isSelected: _machineTypeFilter == null,
-              onTap: () {
-                setState(() {
-                  _machineTypeFilter = null;
-                  _selectedMachine = null;
-                  _selectedSlot = null;
-                });
-                _loadMachinesAndSlots();
-              },
-            ),
-            _FilterChip(
-              label: 'Wash',
-              isSelected:
-                  _machineTypeFilter == AppConstants.machineTypeWash,
-              onTap: () {
-                setState(() {
-                  _machineTypeFilter = AppConstants.machineTypeWash;
-                  _selectedMachine = null;
-                  _selectedSlot = null;
-                });
-                _loadMachinesAndSlots();
-              },
-            ),
-            _FilterChip(
-              label: 'Dry',
-              isSelected:
-                  _machineTypeFilter == AppConstants.machineTypeDry,
-              onTap: () {
-                setState(() {
-                  _machineTypeFilter = AppConstants.machineTypeDry;
-                  _selectedMachine = null;
-                  _selectedSlot = null;
-                });
-                _loadMachinesAndSlots();
-              },
-            ),
-            _FilterChip(
-              label: 'Wash & Dry',
-              isSelected:
-                  _machineTypeFilter == AppConstants.machineTypeWashDry,
-              onTap: () {
-                setState(() {
-                  _machineTypeFilter = AppConstants.machineTypeWashDry;
-                  _selectedMachine = null;
-                  _selectedSlot = null;
-                });
-                _loadMachinesAndSlots();
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-
-        if (_isLoadingSlots)
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.all(40),
-              child: CircularProgressIndicator(),
-            ),
-          )
-        else if (_machines.isEmpty)
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.all(40),
-              child: Column(
-                children: [
-                  Icon(Icons.search_off,
-                      size: 48, color: Colors.grey.shade400),
-                  const SizedBox(height: 12),
-                  Text(
-                    'No machines available',
-                    style: TextStyle(
-                      color: Colors.grey.shade600,
-                      fontSize: 16,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          )
-        else ...[
-          // Machine selection
-          Text(
-            'Select Machine',
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 10),
-          // Responsive wrap grid — no overflow
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final cardWidth = (constraints.maxWidth - 10) / 2;
-              return Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: _machines.map((machine) {
-                  final isSelected =
-                      _selectedMachine?.machineId == machine.machineId;
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _selectedMachine = machine;
-                        _selectedSlot = null;
-                      });
-                    },
-                    child: Container(
-                      width: cardWidth,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 14),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: isSelected
-                              ? theme.colorScheme.primary
-                              : Colors.grey.shade300,
-                          width: isSelected ? 2 : 1,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        color: isSelected
-                            ? theme.colorScheme.primary
-                                .withValues(alpha: 0.08)
-                            : Colors.white,
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? theme.colorScheme.primary
-                                  : Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(
-                              _getMachineIcon(machine.machineType),
-                              size: 20,
-                              color: isSelected
-                                  ? Colors.white
-                                  : Colors.grey.shade600,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  machine.machineName,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: isSelected
-                                        ? FontWeight.bold
-                                        : FontWeight.w500,
-                                    color: isSelected
-                                        ? theme.colorScheme.primary
-                                        : Colors.black87,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  _machineTypeLabel(machine.machineType),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey.shade500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (isSelected)
-                            Icon(
-                              Icons.check_circle,
-                              size: 16,
-                              color: theme.colorScheme.primary,
-                            ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              );
-            },
-          ),
-
-          // Time slot grid
-          if (_selectedMachine != null) ...[
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Text(
-                  'Available Time Slots',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const Spacer(),
-                // Legend
-                _SlotLegend(
-                    color: Colors.green.shade100, label: 'Available'),
-                const SizedBox(width: 8),
-                _SlotLegend(
-                    color: Colors.grey.shade300, label: 'Booked'),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _buildTimeSlotGrid(theme),
-          ],
-        ],
-
-        // Price summary
-        if (_selectedSlot != null) ...[
-          const SizedBox(height: 24),
-          _buildPriceSummary(theme),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildTimeSlotGrid(ThemeData theme) {
-    final machineSlots = _slots
-        .where((s) => s.machineId == _selectedMachine!.machineId)
-        .toList();
-    machineSlots.sort((a, b) => a.startTime.compareTo(b.startTime));
-
-    if (machineSlots.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.orange.shade50,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.orange.shade200),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.info_outline, color: Colors.orange.shade700),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'No time slots found for this machine on the selected date.',
-                style: TextStyle(color: Colors.orange.shade900, fontSize: 13),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // 2 columns — wide enough for "08:00 - 09:00" text without overflow
-        const cols = 2;
-        const spacing = 8.0;
-        final cardWidth = (constraints.maxWidth - spacing * (cols - 1)) / cols;
-
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          children: machineSlots.map((slot) {
-            final isSelected = _selectedSlot?.slotId == slot.slotId;
-            final isAvailable = slot.isAvailable;
-
-            Color bgColor;
-            Color borderColor;
-            Color timeColor;
-            Color labelColor;
-
-            if (isSelected) {
-              bgColor = theme.colorScheme.primary;
-              borderColor = theme.colorScheme.primary;
-              timeColor = Colors.white;
-              labelColor = Colors.white.withValues(alpha: 0.85);
-            } else if (isAvailable) {
-              bgColor = Colors.green.shade50;
-              borderColor = Colors.green.shade300;
-              timeColor = Colors.green.shade900;
-              labelColor = Colors.green.shade700;
-            } else {
-              bgColor = Colors.grey.shade100;
-              borderColor = Colors.grey.shade300;
-              timeColor = Colors.grey.shade500;
-              labelColor = Colors.grey.shade400;
-            }
-
-            String statusLabel;
-            switch (slot.status) {
-              case 'booked':
-                statusLabel = 'Booked';
-                break;
-              case 'in_use':
-                statusLabel = 'In Use';
-                break;
-              case 'maintenance':
-                statusLabel = 'Maintenance';
-                break;
-              default:
-                statusLabel = isAvailable ? 'Available' : 'Booked';
-            }
-
-            return GestureDetector(
-              onTap: isAvailable
-                  ? () => setState(() => _selectedSlot = slot)
-                  : null,
-              child: Container(
-                width: cardWidth,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 12),
-                decoration: BoxDecoration(
-                  color: bgColor,
-                  border: Border.all(
-                    color: borderColor,
-                    width: isSelected ? 2 : 1,
-                  ),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      isSelected
-                          ? Icons.check_circle
-                          : isAvailable
-                              ? Icons.access_time
-                              : Icons.lock_outline,
-                      size: 18,
-                      color: isSelected
-                          ? Colors.white
-                          : isAvailable
-                              ? Colors.green.shade600
-                              : Colors.grey.shade400,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            slot.timeRange,
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: timeColor,
-                            ),
-                          ),
-                          Text(
-                            statusLabel,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: labelColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-
   Widget _buildPriceSummary(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.all(16),

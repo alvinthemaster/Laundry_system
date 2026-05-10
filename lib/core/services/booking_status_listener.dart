@@ -11,11 +11,11 @@ class BookingStatusListener {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   StreamSubscription<QuerySnapshot>? _subscription;
+  StreamSubscription<QuerySnapshot>? _notificationSubscription;
   final Map<String, String> _lastKnownStatuses = {};
 
-  /// Start listening for booking status changes for a specific user
+  /// Start listening for booking status changes and incoming notifications
   void startListening(String userId) {
-    // Cancel existing subscription if any
     stopListening();
 
     developer.log(
@@ -23,7 +23,7 @@ class BookingStatusListener {
       name: 'BookingStatusListener',
     );
 
-    // Listen to user's bookings in real-time
+    // ── listen to booking status changes ──────────────────────────────────
     _subscription = _firestore
         .collection('bookings')
         .where('userId', isEqualTo: userId)
@@ -40,6 +40,30 @@ class BookingStatusListener {
       onError: (error) {
         developer.log(
           'Error listening to booking changes: $error',
+          name: 'BookingStatusListener',
+          error: error,
+        );
+      },
+    );
+
+    // ── listen to server-written notifications (rider arrived, receipt ready) ─
+    _notificationSubscription = _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('notifications')
+        .where('read', isEqualTo: false)
+        .snapshots()
+        .listen(
+      (snapshot) {
+        for (var change in snapshot.docChanges) {
+          if (change.type == DocumentChangeType.added) {
+            _handleIncomingNotification(change.doc);
+          }
+        }
+      },
+      onError: (error) {
+        developer.log(
+          'Error listening to notifications: $error',
           name: 'BookingStatusListener',
           error: error,
         );
@@ -64,15 +88,51 @@ class BookingStatusListener {
       if (previousStatus != null && 
           previousStatus != 'Ready' && 
           currentStatus == 'Ready') {
-        // Status changed to Ready - send notification
         _sendReadyNotification(bookingId, data);
       }
 
-      // Update last known status
       _lastKnownStatuses[bookingId] = currentStatus;
     } catch (e) {
       developer.log(
         'Error handling booking change: $e',
+        name: 'BookingStatusListener',
+        error: e,
+      );
+    }
+  }
+
+  /// Show a local notification for new notification documents written by the server
+  void _handleIncomingNotification(DocumentSnapshot doc) {
+    try {
+      final data = doc.data() as Map<String, dynamic>?;
+      if (data == null) return;
+
+      final type = data['type'] as String? ?? '';
+      final title = data['title'] as String? ?? 'Laundry Update';
+      final body = data['body'] as String? ?? '';
+      final bookingId = data['bookingId'] as String? ?? '';
+
+      developer.log(
+        'Incoming notification type=$type bookingId=$bookingId',
+        name: 'BookingStatusListener',
+      );
+
+      NotificationService().showLocalNotification(
+        title: title,
+        body: body,
+        payload: 'booking:$bookingId',
+      );
+
+      // Mark as read so it doesn't fire again on next app open.
+      doc.reference.update({'read': true}).catchError((e) {
+        developer.log(
+          'Failed to mark notification as read: $e',
+          name: 'BookingStatusListener',
+        );
+      });
+    } catch (e) {
+      developer.log(
+        'Error handling incoming notification: $e',
         name: 'BookingStatusListener',
         error: e,
       );
@@ -86,7 +146,6 @@ class BookingStatusListener {
       name: 'BookingStatusListener',
     );
 
-    // Use NotificationService to show local notification
     NotificationService().showLocalNotification(
       title: '🎉 Your Laundry is Ready!',
       body: 'Your laundry order is ready for pickup. Thank you for using our service!',
@@ -98,6 +157,8 @@ class BookingStatusListener {
   void stopListening() {
     _subscription?.cancel();
     _subscription = null;
+    _notificationSubscription?.cancel();
+    _notificationSubscription = null;
     _lastKnownStatuses.clear();
     
     developer.log(

@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:developer' as developer;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:uuid/uuid.dart';
 import 'package:laundry_system/core/constants/app_constants.dart';
+import 'package:laundry_system/core/services/delivery_price_service.dart';
 import 'package:laundry_system/core/services/pricing_service.dart';
 import 'package:laundry_system/features/booking/data/models/booking_model.dart';
 
@@ -25,6 +27,7 @@ abstract class BookingDataSource {
     double? slotFee,
     double? deliveryFee,
     String? customerName,
+    String? customerPhone,
     String? serviceType,
   });
 
@@ -38,6 +41,13 @@ abstract class BookingDataSource {
   Future<void> updateDeliveryStatus({
     required String bookingId,
     required String status,
+  });
+
+  /// Uploads proof photo and creates COD receipt atomically.
+  Future<void> generateDeliveryReceipt({
+    required String bookingId,
+    required List<int> imageBytes,
+    required String imageFileName,
   });
   Future<BookingModel> getBookingById(String bookingId);
   Future<void> cancelBooking(String bookingId);
@@ -88,6 +98,7 @@ class BookingDataSourceImpl implements BookingDataSource {
     double? slotFee,
     double? deliveryFee,
     String? customerName,
+    String? customerPhone,
     String? serviceType,
   }) async {
     try {
@@ -105,17 +116,40 @@ class BookingDataSourceImpl implements BookingDataSource {
         (sum, cat) => sum + ((cat['computedPrice'] as num?)?.toDouble() ?? 0.0),
       );
 
-      final resolvedTotal = totalAmount ?? AppConstants.bookingFee;
+      final isDelivery = bookingType == AppConstants.bookingTypeDelivery;
+      final providedDeliveryFee = deliveryFee ?? 0.0;
+      final resolvedDeliveryFee = isDelivery
+          ? await DeliveryPriceService.getDeliveryFeeForAddress(
+              deliveryAddress ?? '',
+              fallback: providedDeliveryFee > 0
+                  ? providedDeliveryFee
+                  : AppConstants.deliveryFee,
+            )
+          : 0.0;
+
+      final providedSlotFee = slotFee ?? 0.0;
+
+      final addOnsTotal = selectedAddOns.fold<double>(
+        0.0,
+        (sum, e) => sum + ((e['price'] as num?)?.toDouble() ?? 0.0),
+      );
+
+      final computedTotal = computedCategoryTotal +
+          addOnsTotal +
+          AppConstants.bookingFee +
+          providedSlotFee +
+          resolvedDeliveryFee;
+
+      final resolvedTotal = totalAmount == null
+          ? computedTotal
+          : totalAmount +
+              (isDelivery ? (resolvedDeliveryFee - providedDeliveryFee) : 0.0);
 
       final paymentStatus = paymentMethod == AppConstants.paymentGCash
           ? AppConstants.paymentPaid
           : AppConstants.paymentUnpaid;
 
       final bookingId = _uuid.v4();
-      final addOnsTotal = selectedAddOns.fold<double>(
-        0.0,
-        (sum, e) => sum + ((e['price'] as num?)?.toDouble() ?? 0.0),
-      );
 
       final bookingModel = BookingModel(
         bookingId: bookingId,
@@ -139,9 +173,10 @@ class BookingDataSourceImpl implements BookingDataSource {
         machineId: machineId,
         machineName: machineName,
         slotId: slotId,
-        slotFee: slotFee ?? 0.0,
-        deliveryFee: deliveryFee ?? 0.0,
+        slotFee: providedSlotFee,
+        deliveryFee: resolvedDeliveryFee,
         customerName: customerName,
+        customerPhone: customerPhone,
       );
 
       final bookingRef = _firestore
@@ -383,8 +418,102 @@ class BookingDataSourceImpl implements BookingDataSource {
         'status': status,
         'statusUpdatedAt': FieldValue.serverTimestamp(),
       });
+
+      // Lock the chat room when delivery is completed.
+      if (status.trim().toLowerCase() == 'completed') {
+        try {
+          await _firestore.collection('chats').doc(bookingId).update({
+            'locked': true,
+          });
+        } catch (_) {
+          // Chat room may not exist — ignore
+        }
+      }
     } catch (e) {
       throw Exception('Failed to update delivery status: $e');
+    }
+  }
+
+  @override
+  Future<void> generateDeliveryReceipt({
+    required String bookingId,
+    required List<int> imageBytes,
+    required String imageFileName,
+  }) async {
+    try {
+      // 1. Encode proof photo as base64 data URI (no Firebase Storage needed)
+      final ext = imageFileName.contains('.')
+          ? imageFileName.split('.').last
+          : 'jpg';
+      final base64Image = base64Encode(imageBytes);
+      final proofUrl = 'data:image/$ext;base64,$base64Image';
+
+      // 2. Fetch booking data
+      final bookingRef = _firestore
+          .collection(AppConstants.bookingsCollection)
+          .doc(bookingId);
+      final snap = await bookingRef.get();
+      final data = snap.data();
+      if (data == null) throw Exception('Booking not found');
+
+      final customerId = data['userId'] as String? ?? '';
+
+      // 3. Batch: create receipt, update booking, notify customer
+      final batch = _firestore.batch();
+
+      final receiptRef = _firestore
+          .collection(AppConstants.receiptsCollection)
+          .doc(bookingId);
+      batch.set(receiptRef, {
+        'receiptId': bookingId,
+        'userId': customerId,
+        'bookingId': bookingId,
+        'categories': data['categories'] ?? [],
+        'addOns': data['selectedAddOns'] ?? [],
+        'totalAmount': data['totalAmount'] ?? 0,
+        'slotFee': data['slotFee'] ?? 0,
+        'deliveryFee': data['deliveryFee'] ?? 0,
+        'bookingFee': data['bookingFee'] ?? 0,
+        'addOnsTotal': data['addOnsTotal'] ?? 0,
+        'paymentStatus': data['paymentStatus'] ?? 'Unpaid',
+        'paymentMethod': data['paymentMethod'] ?? AppConstants.paymentCash,
+        'bookingType': data['bookingType'] ?? data['orderType'] ?? 'delivery',
+        'machineId': data['machineId'],
+        'machineName': data['machineName'],
+        'timeSlot': data['timeSlot'],
+        'bookingDate': data['pickupDate'],
+        'deliveryAddress': data['deliveryAddress'],
+        'customerName': data['customerName'],
+        'driverName': data['driverName'],
+        'serviceType': data['serviceType'],
+        'deliveryProofUrl': proofUrl,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // Update booking with proof URL
+      batch.update(bookingRef, {'deliveryProofUrl': proofUrl});
+
+      // Notify customer
+      if (customerId.isNotEmpty) {
+        final notifRef = _firestore
+            .collection(AppConstants.usersCollection)
+            .doc(customerId)
+            .collection('notifications')
+            .doc();
+        batch.set(notifRef, {
+          'type': 'receipt_ready',
+          'bookingId': bookingId,
+          'receiptId': bookingId,
+          'title': '🧾 Your E-Receipt is Ready!',
+          'body': 'Your COD delivery is complete. View your receipt in the app.',
+          'createdAt': FieldValue.serverTimestamp(),
+          'read': false,
+        });
+      }
+
+      await batch.commit();
+    } catch (e) {
+      throw Exception('Failed to generate delivery receipt: $e');
     }
   }
 

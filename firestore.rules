@@ -1,0 +1,123 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── helpers ──────────────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isCustomer() {
+      return isSignedIn() && userRole() == 'customer';
+    }
+
+    function isDriver() {
+      return isSignedIn() && userRole() == 'driver';
+    }
+
+    function isAdmin() {
+      return isSignedIn() && userRole() == 'admin';
+    }
+
+    // ── users ─────────────────────────────────────────────────────────────────
+
+    match /users/{userId} {
+      allow read:   if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow delete: if isAdmin();
+
+      // notifications sub-collection
+      // Cloud Functions (admin SDK) write here; drivers/admins can also create;
+      // the owning customer reads and marks-as-read.
+      match /notifications/{notifId} {
+        allow read:   if isSignedIn() && request.auth.uid == userId;
+        allow create: if isDriver() || isAdmin();
+        allow update: if isSignedIn() && request.auth.uid == userId; // mark as read
+        allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      }
+    }
+
+    // ── bookings ──────────────────────────────────────────────────────────────
+
+    match /bookings/{bookingId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isDriver() || isAdmin()
+      );
+      allow create: if isCustomer() && request.resource.data.userId == request.auth.uid;
+      allow update: if isDriver() || isAdmin() ||
+        (isCustomer() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    // ── delivery prices ───────────────────────────────────────────────────────
+    // Customer app reads these to populate delivery address dropdown and fee.
+    match /delivery_prices/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Backward compatibility for singular collection name.
+    match /delivery_price/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── receipts ──────────────────────────────────────────────────────────────
+    // COD receipts are created by the driver app when marking a delivery as
+    // "Delivered". Cloud Functions (admin SDK) also write here for server-side
+    // generation. Clients can only read.
+
+    match /receipts/{receiptId} {
+      // Customers read their own receipts; drivers and admins read all.
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isDriver() || isAdmin()
+      );
+      // Drivers create COD receipts; admins can create/update any receipt.
+      allow create: if isDriver() || isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ── chats ─────────────────────────────────────────────────────────────────
+    // One chat room per booking (document ID == bookingId).
+    // Locked when booking is Completed/Cancelled — no new messages allowed.
+    // Rules are kept simple for demo; the locked flag is enforced server-side.
+
+    match /chats/{bookingId} {
+      // Any signed-in user can read chat rooms (driver, customer, admin).
+      allow read: if isSignedIn();
+
+      // Participants create the chat room; admins can also create/update.
+      allow create: if isSignedIn() && (
+        request.resource.data.customerId == request.auth.uid ||
+        request.resource.data.driverId  == request.auth.uid ||
+        isAdmin()
+      );
+
+      // Participants and admin can update (e.g. lastMessage, locked flag).
+      allow update: if isSignedIn();
+
+      allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        // Any signed-in user can read messages.
+        allow read: if isSignedIn();
+
+        // Only the sender can create a message; chat must not be locked.
+        allow create: if isSignedIn() &&
+          request.resource.data.senderId == request.auth.uid &&
+          get(/databases/$(database)/documents/chats/$(bookingId)).data.get('locked', false) == false &&
+          get(/databases/$(database)/documents/bookings/$(bookingId)).data.status != 'Completed';
+
+        // Messages are immutable.
+        allow update, delete: if false;
+      }
+    }
+  }
+}

@@ -25,6 +25,7 @@ class CreateBookingUseCase {
     double? slotFee,
     double? deliveryFee,
     String? customerName,
+    String? customerPhone,
     String? serviceType,
   }) {
     return repository.createBooking(
@@ -44,6 +45,7 @@ class CreateBookingUseCase {
       slotFee: slotFee,
       deliveryFee: deliveryFee,
       customerName: customerName,
+      customerPhone: customerPhone,
       serviceType: serviceType,
     );
   }
@@ -133,6 +135,24 @@ class UpdateDeliveryStatusUseCase {
     required String status,
   }) {
     return repository.updateDeliveryStatus(bookingId: bookingId, status: status);
+  }
+}
+
+class GenerateDeliveryReceiptUseCase {
+  final BookingRepository repository;
+
+  const GenerateDeliveryReceiptUseCase(this.repository);
+
+  Future<Either<dynamic, void>> call({
+    required String bookingId,
+    required List<int> imageBytes,
+    required String imageFileName,
+  }) {
+    return repository.generateDeliveryReceipt(
+      bookingId: bookingId,
+      imageBytes: imageBytes,
+      imageFileName: imageFileName,
+    );
   }
 }
 

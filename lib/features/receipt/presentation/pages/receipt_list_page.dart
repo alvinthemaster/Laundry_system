@@ -57,12 +57,12 @@ class _ReceiptListPageState extends ConsumerState<ReceiptListPage> {
   }
 
   Color _getPaymentStatusColor(String status) {
-    switch (status) {
-      case 'Paid':
+    switch (status.trim().toLowerCase()) {
+      case 'paid':
         return Colors.green;
-      case 'Half Paid':
+      case 'half paid':
         return Colors.orange;
-      case 'Unpaid':
+      case 'unpaid':
         return Colors.red;
       default:
         return Colors.grey;
@@ -72,7 +72,6 @@ class _ReceiptListPageState extends ConsumerState<ReceiptListPage> {
   @override
   Widget build(BuildContext context) {
     final receiptState = ref.watch(receiptProvider);
-    final user = ref.watch(authProvider).user;
     final theme = Theme.of(context);
 
     ref.listen<AuthState>(authProvider, (previous, next) {

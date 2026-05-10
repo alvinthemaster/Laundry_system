@@ -27,6 +27,7 @@ class BookingRepositoryImpl implements BookingRepository {
     double? slotFee,
     double? deliveryFee,
     String? customerName,
+    String? customerPhone,
     String? serviceType,
   }) async {
     try {
@@ -47,6 +48,7 @@ class BookingRepositoryImpl implements BookingRepository {
         slotFee: slotFee,
         deliveryFee: deliveryFee,
         customerName: customerName,
+        customerPhone: customerPhone,
         serviceType: serviceType,
       );
       return Either.right(booking);
@@ -136,6 +138,24 @@ class BookingRepositoryImpl implements BookingRepository {
   }) async {
     try {
       await dataSource.updateDeliveryStatus(bookingId: bookingId, status: status);
+      return Either.right(null);
+    } catch (e) {
+      return Either.left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> generateDeliveryReceipt({
+    required String bookingId,
+    required List<int> imageBytes,
+    required String imageFileName,
+  }) async {
+    try {
+      await dataSource.generateDeliveryReceipt(
+        bookingId: bookingId,
+        imageBytes: imageBytes,
+        imageFileName: imageFileName,
+      );
       return Either.right(null);
     } catch (e) {
       return Either.left(ServerFailure(e.toString()));

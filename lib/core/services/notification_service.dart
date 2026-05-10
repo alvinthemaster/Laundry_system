@@ -28,7 +28,11 @@ class NotificationService {
     if (_initialized) return;
 
     try {
-      // Request permission for notifications
+      // Always initialize local notifications first so showLocalNotification /
+      // showDriverNotification work regardless of FCM permission status.
+      await _initializeLocalNotifications();
+
+      // Request FCM permission (controls remote push from server)
       final settings = await _messaging.requestPermission(
         alert: true,
         badge: true,
@@ -41,11 +45,9 @@ class NotificationService {
         name: 'NotificationService',
       );
 
+      // Wire up FCM handlers only when permission is granted
       if (settings.authorizationStatus == AuthorizationStatus.authorized ||
           settings.authorizationStatus == AuthorizationStatus.provisional) {
-        // Initialize local notifications for Android
-        await _initializeLocalNotifications();
-
         // Get FCM token
         final token = await _messaging.getToken();
         if (token != null) {
@@ -71,9 +73,9 @@ class NotificationService {
 
         // Handle notification taps (app opened from notification)
         FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageOpenedApp);
-
-        _initialized = true;
       }
+
+      _initialized = true;
     } catch (e) {
       developer.log(
         'Error initializing notifications: $e',
@@ -129,7 +131,7 @@ class NotificationService {
     // TODO: Navigate to specific screen based on payload
   }
 
-  /// Show local notification
+  /// Show local notification (for customers / generic use)
   Future<void> showLocalNotification({
     required String title,
     required String body,
@@ -142,6 +144,34 @@ class NotificationService {
       importance: Importance.high,
       priority: Priority.high,
       showWhen: true,
+    );
+
+    const notificationDetails = NotificationDetails(android: androidDetails);
+
+    await _localNotifications.show(
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      title,
+      body,
+      notificationDetails,
+      payload: payload,
+    );
+  }
+
+  /// Show a high-priority notification for driver delivery assignments
+  Future<void> showDriverNotification({
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    const androidDetails = AndroidNotificationDetails(
+      'driver_assignment_channel',
+      'Driver Delivery Assignments',
+      channelDescription: 'Notifications for new delivery tasks assigned to the driver',
+      importance: Importance.max,
+      priority: Priority.max,
+      showWhen: true,
+      playSound: true,
+      enableVibration: true,
     );
 
     const notificationDetails = NotificationDetails(android: androidDetails);

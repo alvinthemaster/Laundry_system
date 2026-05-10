@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:laundry_system/core/utils/app_utils.dart';
@@ -8,13 +10,13 @@ class ReceiptDetailsPage extends StatelessWidget {
 
   const ReceiptDetailsPage({super.key, required this.receipt});
 
-  Color _getPaymentStatusColor(String status) {
-    switch (status) {
-      case 'Paid':
+  Color _statusColor(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'paid':
         return Colors.green;
-      case 'Half Paid':
+      case 'half paid':
         return Colors.orange;
-      case 'Unpaid':
+      case 'unpaid':
         return Colors.red;
       default:
         return Colors.grey;
@@ -24,7 +26,8 @@ class ReceiptDetailsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final statusColor = _getPaymentStatusColor(receipt.status);
+    final isDelivery =
+        (receipt.bookingType ?? '').toLowerCase() == 'delivery';
 
     return Scaffold(
       appBar: AppBar(title: const Text('Receipt Details')),
@@ -33,70 +36,55 @@ class ReceiptDetailsPage extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Receipt Header ──
-            _buildHeader(theme, statusColor),
-            const SizedBox(height: 24),
+            // ── Header ──
+            _buildHeader(theme),
+            const SizedBox(height: 20),
 
-            // ── Booking Information ──
+            // ── Customer / Delivery Info ──
             _buildSection(
               theme,
-              title: 'Booking Information',
-              icon: Icons.info_outline,
+              title: isDelivery ? 'Delivery Information' : 'Booking Information',
+              icon: isDelivery ? Icons.delivery_dining : Icons.local_laundry_service,
               children: [
-                _buildInfoRow('Booking ID',
-                    receipt.bookingId.length > 8
-                        ? '${receipt.bookingId.substring(0, 8)}...'
-                        : receipt.bookingId),
-                if (receipt.machineName != null)
-                  _buildInfoRow('Machine', receipt.machineName!),
-                if (receipt.timeSlot != null)
-                  _buildInfoRow('Time Slot', receipt.timeSlot!),
-                if (receipt.bookingType != null)
-                  _buildInfoRow('Booking Type',
-                      receipt.bookingType!.toUpperCase()),
+                if (receipt.customerName != null)
+                  _infoRow('Customer', receipt.customerName!),
+                _infoRow('Type',
+                    isDelivery ? 'Delivery' : 'Walk-in / Pickup'),
                 if (receipt.bookingDate != null)
-                  _buildInfoRow(
-                    'Booking Date',
+                  _infoRow(
+                    'Date',
                     DateFormat('EEEE, MMMM d, yyyy')
                         .format(receipt.bookingDate!),
                   ),
+                if (receipt.serviceType != null)
+                  _infoRow('Service', receipt.serviceType!),
+                if (isDelivery && receipt.deliveryAddress != null)
+                  _infoRow('Address', receipt.deliveryAddress!),
+                if (isDelivery && receipt.driverName != null)
+                  _infoRow('Driver', receipt.driverName!),
+                if (!isDelivery && receipt.machineName != null)
+                  _infoRow('Machine', receipt.machineName!),
+                if (!isDelivery && receipt.timeSlot != null)
+                  _infoRow('Time Slot', receipt.timeSlot!),
               ],
             ),
             const SizedBox(height: 16),
 
-            // ── Categories ──
+            // ── Laundry Items ──
             if (receipt.categories.isNotEmpty) ...[
               _buildSection(
                 theme,
-                title: 'Categories',
-                icon: Icons.category_outlined,
+                title: 'Laundry Items',
+                icon: Icons.local_laundry_service_outlined,
                 children: receipt.categories.map((cat) {
-                  final name = cat['name'] as String? ?? 'Unknown';
+                  final name = cat['name'] as String? ?? 'Item';
                   final weight =
                       (cat['weight'] as num?)?.toDouble() ?? 0.0;
                   final price =
                       (cat['computedPrice'] as num?)?.toDouble() ?? 0.0;
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '$name${weight > 0 ? ' (${weight.toStringAsFixed(1)} kg)' : ''}',
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                        ),
-                        if (price > 0)
-                          Text(
-                            AppUtils.formatCurrency(price),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w500,
-                              fontSize: 14,
-                            ),
-                          ),
-                      ],
-                    ),
+                  return _priceRow(
+                    '$name${weight > 0 ? ' (${weight.toStringAsFixed(1)} kg)' : ''}',
+                    price > 0 ? AppUtils.formatCurrency(price) : '',
                   );
                 }).toList(),
               ),
@@ -113,22 +101,7 @@ class ReceiptDetailsPage extends StatelessWidget {
                   final name = addon['name'] as String? ?? 'Add-on';
                   final price =
                       (addon['price'] as num?)?.toDouble() ?? 0.0;
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(name, style: const TextStyle(fontSize: 14)),
-                        Text(
-                          AppUtils.formatCurrency(price),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w500,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
+                  return _priceRow(name, AppUtils.formatCurrency(price));
                 }).toList(),
               ),
               const SizedBox(height: 16),
@@ -140,23 +113,23 @@ class ReceiptDetailsPage extends StatelessWidget {
               title: 'Price Breakdown',
               icon: Icons.receipt_outlined,
               children: [
-                if (receipt.slotFee > 0)
-                  _buildPriceRow('Slot Fee', receipt.slotFee),
                 if (receipt.bookingFee > 0)
-                  _buildPriceRow('Booking Fee', receipt.bookingFee),
+                  _priceRow('Booking Fee',
+                      AppUtils.formatCurrency(receipt.bookingFee)),
                 if (receipt.addOnsTotal > 0)
-                  _buildPriceRow('Add-ons Total', receipt.addOnsTotal),
+                  _priceRow('Add-ons',
+                      AppUtils.formatCurrency(receipt.addOnsTotal)),
                 if (receipt.deliveryFee > 0)
-                  _buildPriceRow('Delivery Fee', receipt.deliveryFee),
+                  _priceRow('Delivery Fee',
+                      AppUtils.formatCurrency(receipt.deliveryFee)),
                 const Divider(height: 20),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
                       'Total Amount',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.bold),
                     ),
                     Text(
                       AppUtils.formatCurrency(receipt.totalAmount),
@@ -171,37 +144,67 @@ class ReceiptDetailsPage extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            // ── Payment Info ──
+            // ── Payment ──
             _buildSection(
               theme,
               title: 'Payment',
               icon: Icons.payment,
               children: [
-                _buildInfoRow('Status', receipt.status),
+                _infoRow('Status', receipt.status,
+                    valueColor: _statusColor(receipt.status)),
                 if (receipt.paymentMethod != null)
-                  _buildInfoRow('Method', receipt.paymentMethod!),
-                _buildInfoRow(
-                  'Created At',
-                  DateFormat('MMMM d, yyyy – h:mm a')
+                  _infoRow('Method', receipt.paymentMethod!),
+                _infoRow(
+                  'Issued',
+                  DateFormat('MMM d, yyyy – h:mm a')
                       .format(receipt.createdAt),
                 ),
               ],
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 16),
+
+            // ── Delivery Proof Photo ──
+            if (receipt.deliveryProofUrl != null) ...[
+              _buildSection(
+                theme,
+                title: 'Delivery Proof',
+                icon: Icons.photo_camera,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: _buildProofImage(receipt.deliveryProofUrl!),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Photo taken by driver at time of delivery',
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.grey.shade500),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            const SizedBox(height: 16),
           ],
         ),
       ),
     );
   }
 
-  // ── Header ──
-  Widget _buildHeader(ThemeData theme, Color statusColor) {
+  // ── Header card ──────────────────────────────────────────────────────────
+
+  Widget _buildHeader(ThemeData theme) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [theme.colorScheme.primary, theme.colorScheme.primary.withValues(alpha: 0.8)],
+          colors: [
+            theme.colorScheme.primary,
+            theme.colorScheme.primary.withValues(alpha: 0.8),
+          ],
         ),
         borderRadius: BorderRadius.circular(16),
       ),
@@ -212,31 +215,13 @@ class ReceiptDetailsPage extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Icon(Icons.receipt_long, color: Colors.white, size: 32),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  receipt.status,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
+              _statusChip(receipt.status),
             ],
           ),
           const SizedBox(height: 12),
           Text(
             'Receipt #${receipt.receiptId.length > 12 ? receipt.receiptId.substring(0, 12) : receipt.receiptId}',
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 13,
-            ),
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
           ),
           const SizedBox(height: 4),
           Text(
@@ -252,7 +237,79 @@ class ReceiptDetailsPage extends StatelessWidget {
     );
   }
 
-  // ── Section Card ──
+  Widget _statusChip(String status) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        status,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 13,
+        ),
+      ),
+    );
+  }
+
+  // ── Section card ─────────────────────────────────────────────────────────
+
+  /// Renders the delivery proof photo whether it's a base64 data URI
+  /// (stored in Firestore on Spark plan) or a regular HTTPS URL.
+  Widget _buildProofImage(String url) {
+    if (url.startsWith('data:image')) {
+      // Extract the base64 payload after the comma
+      final commaIndex = url.indexOf(',');
+      if (commaIndex != -1) {
+        try {
+          final bytes = base64Decode(url.substring(commaIndex + 1));
+          return Image.memory(
+            Uint8List.fromList(bytes),
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _brokenImagePlaceholder(),
+          );
+        } catch (_) {
+          return _brokenImagePlaceholder();
+        }
+      }
+      return _brokenImagePlaceholder();
+    }
+    // Regular URL
+    return Image.network(
+      url,
+      width: double.infinity,
+      fit: BoxFit.cover,
+      loadingBuilder: (ctx, child, progress) {
+        if (progress == null) return child;
+        return SizedBox(
+          height: 180,
+          child: Center(
+            child: CircularProgressIndicator(
+              value: progress.expectedTotalBytes != null
+                  ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                  : null,
+            ),
+          ),
+        );
+      },
+      errorBuilder: (_, __, ___) => _brokenImagePlaceholder(),
+    );
+  }
+
+  Widget _brokenImagePlaceholder() {
+    return Container(
+      height: 120,
+      color: Colors.grey.shade100,
+      child: const Center(
+        child: Icon(Icons.broken_image, size: 40, color: Colors.grey),
+      ),
+    );
+  }
+
   Widget _buildSection(
     ThemeData theme, {
     required String title,
@@ -283,9 +340,8 @@ class ReceiptDetailsPage extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 title,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                style: theme.textTheme.titleSmall
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -296,19 +352,32 @@ class ReceiptDetailsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
+  // ── Row helpers ───────────────────────────────────────────────────────────
+
+  Widget _infoRow(String label, String value, {Color? valueColor}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
-          Flexible(
+          SizedBox(
+            width: 110,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ),
+          Expanded(
             child: Text(
               value,
-              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
-              textAlign: TextAlign.end,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: valueColor,
+              ),
             ),
           ),
         ],
@@ -316,20 +385,24 @@ class ReceiptDetailsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildPriceRow(String label, double amount) {
+  Widget _priceRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
-          Text(
-            AppUtils.formatCurrency(amount),
-            style: const TextStyle(fontSize: 14),
+          Expanded(
+            child: Text(label, style: const TextStyle(fontSize: 14)),
           ),
+          if (value.isNotEmpty)
+            Text(
+              value,
+              style: const TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.w500),
+            ),
         ],
       ),
     );
   }
 }
+

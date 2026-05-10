@@ -21,6 +21,7 @@ abstract class BookingRepository {
     double? slotFee,
     double? deliveryFee,
     String? customerName,
+    String? customerPhone,
     String? serviceType,
   });
 
@@ -40,6 +41,13 @@ abstract class BookingRepository {
   Future<Either<Failure, void>> updateDeliveryStatus({
     required String bookingId,
     required String status,
+  });
+
+  // Generate delivery receipt with proof photo (COD deliveries only)
+  Future<Either<Failure, void>> generateDeliveryReceipt({
+    required String bookingId,
+    required List<int> imageBytes,
+    required String imageFileName,
   });
 
   // Notify customer that rider has arrived

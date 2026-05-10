@@ -100,4 +100,47 @@ class AppConstants {
   static const String slotBooked = 'booked';
   static const String slotInUse = 'in_use';
   static const String slotMaintenance = 'maintenance';
+
+  // Delivery Addresses (Glan area) — A-Z order
+  static const List<String> deliveryAddresses = [
+    'Batulangon',
+    'Batulangon Bridge',
+    'Bongbongon',
+    'Calabalol',
+    'Calabanit Proper',
+    'Calanasan',
+    'Calgang Calabanit',
+    'COOP Calpidong',
+    'Crossing Calabanit',
+    'Crossing Tinago',
+    'Dream Village',
+    'Glan Padidu',
+    'Glan Padidu (Sanibulad)',
+    'Gumasa (Baryo Lapok/Langit)',
+    'Jumbo Bridge',
+    'Kapatan',
+    'Kapatan (Kabog)',
+    'Kiesig',
+    'Kiesig Coop',
+    'Lago',
+    'Lovesville',
+    'Lower Kiogam',
+    'Milagring Romblon',
+    'Mudan',
+    'Nacolil Sundal',
+    'NIA Dam',
+    'Nursery (Calabanit)',
+    'San Vicente',
+    'Sitio Cagang',
+    'Sitio Pagi',
+    'Sunrise',
+    'Taluya (Bulbulan)',
+    'Taluya (Macatimbol/Baybay)',
+    'Tango',
+    'Tapon (PBMA Chapter)',
+    'Tiboy (Calabanit)',
+    'Upper Kiogam',
+    'Victory Village (Tumoy)',
+    'Victory Village Taluya',
+  ];
 }

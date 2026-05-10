@@ -7,6 +7,15 @@ class ReceiptEntity {
   final String? timeSlot;
   final DateTime? bookingDate;
   final String? bookingType;
+  final String? serviceType;
+
+  // People
+  final String? customerName;
+  final String? driverName;
+  final String? deliveryAddress;
+
+  // Delivery proof photo uploaded by driver
+  final String? deliveryProofUrl;
 
   final List<Map<String, dynamic>> categories;
   final List<Map<String, dynamic>> addOns;
@@ -30,6 +39,11 @@ class ReceiptEntity {
     this.timeSlot,
     this.bookingDate,
     this.bookingType,
+    this.serviceType,
+    this.customerName,
+    this.driverName,
+    this.deliveryAddress,
+    this.deliveryProofUrl,
     this.categories = const [],
     this.addOns = const [],
     required this.totalAmount,

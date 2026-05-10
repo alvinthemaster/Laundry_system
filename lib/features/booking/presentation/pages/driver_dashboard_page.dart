@@ -1,11 +1,17 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:laundry_system/core/utils/app_utils.dart';
 import 'package:laundry_system/features/auth/presentation/pages/login_page.dart';
 import 'package:laundry_system/features/auth/presentation/providers/auth_provider.dart';
 import 'package:laundry_system/features/booking/domain/entities/booking_entity.dart';
 import 'package:laundry_system/features/booking/presentation/providers/booking_provider.dart';
+import 'package:laundry_system/features/messaging/presentation/pages/chat_page.dart';
+import 'package:laundry_system/features/messaging/presentation/providers/chat_provider.dart';
+import 'package:laundry_system/features/receipt/presentation/pages/receipt_details_page.dart';
+import 'package:laundry_system/features/receipt/presentation/providers/receipt_provider.dart';
 
 class DriverDashboardPage extends ConsumerStatefulWidget {
   const DriverDashboardPage({super.key});
@@ -22,14 +28,25 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadDriverBookings();
+      _startRealtimeListener();
     });
   }
 
-  Future<void> _loadDriverBookings() async {
+  @override
+  void dispose() {
+    ref.read(bookingProvider.notifier).stopDriverBookingsListener();
+    super.dispose();
+  }
+
+  void _startRealtimeListener() {
     final user = ref.read(authProvider).user;
     if (user == null || user.uid.isEmpty) return;
-    await ref.read(bookingProvider.notifier).getDriverBookings(user.uid);
+    ref.read(bookingProvider.notifier).listenToDriverBookings(user.uid);
+  }
+
+  // Pull-to-refresh restarts the listener to force a re-seed
+  Future<void> _loadDriverBookings() async {
+    _startRealtimeListener();
   }
 
   Future<void> _updateStatus(BookingEntity booking, String newStatus) async {
@@ -78,23 +95,23 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
   }
 
   Color _getStatusColor(String status) {
-    switch (status) {
-      case 'Pending':
+    switch (status.trim().toLowerCase()) {
+      case 'pending':
         return Colors.orange;
-      case 'Confirmed':
+      case 'confirmed':
         return Colors.blue;
-      case 'Washing':
+      case 'washing':
         return Colors.purple;
-      case 'Ready':
+      case 'ready':
         return Colors.teal;
-      case 'Pickup':
+      case 'pickup':
         return Colors.indigo;
-      case 'Out for Delivery':
+      case 'out for delivery':
         return Colors.deepOrange;
-      case 'Delivered':
-      case 'Completed':
+      case 'delivered':
+      case 'completed':
         return Colors.green;
-      case 'Cancelled':
+      case 'cancelled':
         return Colors.red;
       default:
         return Colors.grey;
@@ -104,6 +121,78 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
   List<BookingEntity> _getFilteredBookings(List<BookingEntity> bookings) {
     if (_selectedFilter == 'All') return bookings;
     return bookings.where((b) => b.status == _selectedFilter).toList();
+  }
+
+  Future<void> _viewReceipt(BookingEntity booking) async {
+    // Receipt doc ID == bookingId
+    await ref
+        .read(receiptProvider.notifier)
+        .getReceiptById(booking.bookingId);
+
+    if (!mounted) return;
+
+    final receiptState = ref.read(receiptProvider);
+    if (receiptState.error != null || receiptState.selectedReceipt == null) {
+      AppUtils.showSnackBar(
+        context,
+        receiptState.error ?? 'Receipt not found',
+        isError: true,
+      );
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            ReceiptDetailsPage(receipt: receiptState.selectedReceipt!),
+      ),
+    );
+  }
+
+  /// Opens camera, shows proof preview, then generates receipt.
+  Future<void> _generateReceipt(BookingEntity booking) async {
+    // 1. Take a compressed photo to keep processing light on-device.
+    final picker = ImagePicker();
+    final XFile? photo = await picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 30,
+      maxWidth: 640,
+      maxHeight: 640,
+    );
+    if (photo == null || !mounted) return;
+
+    // 2. Read bytes immediately so we can show a real preview
+    final bytes = await photo.readAsBytes();
+    if (!mounted) return;
+
+    // 3. Show confirmation dialog with in-memory preview (works on all platforms)
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _ProofConfirmDialog(imageBytes: bytes),
+    );
+    if (confirmed != true || !mounted) return;
+
+    // 4. Show loading indicator and generate receipt
+    AppUtils.showSnackBar(context, 'Generating receipt…');
+
+    final success = await ref.read(bookingProvider.notifier).generateDeliveryReceipt(
+          bookingId: booking.bookingId,
+          imageBytes: bytes,
+          imageFileName: photo.name,
+        );
+
+    if (!mounted) return;
+    if (!success) {
+      final error = ref.read(bookingProvider).error;
+      AppUtils.showSnackBar(context, error ?? 'Failed to generate receipt', isError: true);
+      return;
+    }
+
+    AppUtils.showSnackBar(context, 'Receipt generated successfully!');
+
+    // 5. Auto-navigate to receipt
+    _viewReceipt(booking);
   }
 
   Future<void> _notifyArrived(BookingEntity booking) async {
@@ -258,7 +347,6 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
                                   'Ready',
                                   'Pickup',
                                   'Out for Delivery',
-                                  'Delivered',
                                   'Completed',
                                 ]
                                     .map((status) => DropdownMenuItem(
@@ -576,10 +664,139 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
                 const SizedBox(height: 12),
                 _buildStatusButtons(booking),
               ],
+
+              // Generate / View Receipt — shown for all completed deliveries
+              if (booking.status == 'Completed') ...[
+                const SizedBox(height: 12),
+                if (booking.deliveryProofUrl == null)
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _generateReceipt(booking),
+                      icon: const Icon(Icons.camera_alt, size: 18),
+                      label: const Text('Take Photo & Generate Receipt'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepOrange,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  )
+                else
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _viewReceipt(booking),
+                      icon: const Icon(Icons.receipt_long, size: 18),
+                      label: const Text('View E-Receipt'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.teal,
+                        side: const BorderSide(color: Colors.teal),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+              ],
+
+              // Message customer button — always visible while booking is active
+              if (booking.status != 'Cancelled') ...[                
+                if (_showUnreadIndicatorForDriver(booking)) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: _buildDriverUnreadChatIndicator(booking),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => ChatPage(
+                          booking: booking,
+                          currentUserRole: 'driver',
+                        ),
+                      ),
+                    ),
+                    icon: const Icon(Icons.chat_bubble_outline, size: 16),
+                    label: Text(
+                      booking.status == 'Completed'
+                          ? 'View Chat History'
+                          : 'Message Customer',
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.blueGrey,
+                      side: const BorderSide(color: Colors.blueGrey),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
       ),
+    );
+  }
+
+  bool _showUnreadIndicatorForDriver(BookingEntity booking) {
+    return booking.status != 'Cancelled';
+  }
+
+  Widget _buildDriverUnreadChatIndicator(BookingEntity booking) {
+    return Consumer(
+      builder: (context, ref, _) {
+        final roomAsync = ref.watch(chatRoomProvider(booking.bookingId));
+
+        return roomAsync.when(
+          loading: () => const SizedBox.shrink(),
+          error: (_, __) => const SizedBox.shrink(),
+          data: (room) {
+            if (room == null || room.lastMessageAt == null) {
+              return const SizedBox.shrink();
+            }
+
+            final unread = (room.lastSenderRole?.toLowerCase() == 'customer') &&
+                (room.driverLastReadAt == null ||
+                    room.lastMessageAt!.isAfter(room.driverLastReadAt!));
+
+            if (!unread) return const SizedBox.shrink();
+
+            return Container(
+              constraints: const BoxConstraints(minHeight: 18),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.amber.shade700, width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.chat_bubble,
+                    size: 11,
+                    color: Colors.amber.shade900,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'New',
+                    style: TextStyle(
+                      color: Colors.amber.shade900,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -588,7 +805,7 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
     const statuses = [
       ('Pickup', Icons.local_laundry_service, Colors.indigo),
       ('Out for Delivery', Icons.delivery_dining, Colors.deepOrange),
-      ('Delivered', Icons.check_circle, Colors.green),
+      ('Completed', Icons.check_circle, Colors.green),
     ];
 
     return Column(
@@ -678,6 +895,75 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
             style: const TextStyle(fontSize: 12),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Dialog shown to the driver after taking a photo so they can confirm
+/// before the receipt is generated and submitted.
+/// Uses Image.memory so the photo renders correctly on all platforms.
+class _ProofConfirmDialog extends StatelessWidget {
+  final List<int> imageBytes;
+
+  const _ProofConfirmDialog({required this.imageBytes});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Row(
+        children: [
+          Icon(Icons.camera_alt, color: Colors.deepOrange),
+          SizedBox(width: 8),
+          Text('Delivery Proof'),
+        ],
+      ),
+      content: SizedBox(
+        width: 320,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.memory(
+                Uint8List.fromList(imageBytes),
+                height: 250,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  height: 150,
+                  color: Colors.grey.shade200,
+                  child: const Center(
+                    child: Icon(Icons.image, size: 48, color: Colors.grey),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Use this photo as delivery proof and generate the receipt?',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Retake'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () => Navigator.of(context).pop(true),
+          icon: const Icon(Icons.receipt_long, size: 18),
+          label: const Text('Confirm & Generate'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.deepOrange,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10)),
           ),
         ),
       ],

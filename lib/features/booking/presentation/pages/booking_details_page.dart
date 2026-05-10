@@ -5,6 +5,7 @@ import 'package:laundry_system/core/services/pricing_service.dart';
 import 'package:laundry_system/core/utils/app_utils.dart';
 import 'package:laundry_system/features/booking/domain/entities/booking_entity.dart';
 import 'package:laundry_system/features/booking/presentation/providers/booking_provider.dart';
+import 'package:laundry_system/features/messaging/presentation/pages/chat_page.dart';
 import 'package:intl/intl.dart';
 
 // ===========================================================================
@@ -17,18 +18,18 @@ class BookingDetailsPage extends ConsumerWidget {
   const BookingDetailsPage({super.key, required this.booking});
 
   Color _statusColor(String status) {
-    switch (status) {
-      case 'Pending':
+    switch (status.trim().toLowerCase()) {
+      case 'pending':
         return Colors.orange;
-      case 'Confirmed':
+      case 'confirmed':
         return Colors.blue;
-      case 'Washing':
+      case 'washing':
         return Colors.purple;
-      case 'Ready':
+      case 'ready':
         return Colors.green;
-      case 'Completed':
+      case 'completed':
         return Colors.grey;
-      case 'Cancelled':
+      case 'cancelled':
         return Colors.red;
       default:
         return Colors.grey;
@@ -453,6 +454,38 @@ if (booking.timeSlot != null) ...[
                         ],
                       );
                     }),
+                  ],
+
+                  // Message Driver button — shown when driver assigned
+                  if (booking.driverId != null &&
+                      booking.driverId!.isNotEmpty &&
+                      booking.status != 'Cancelled') ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ChatPage(
+                              booking: booking,
+                              currentUserRole: 'customer',
+                            ),
+                          ),
+                        ),
+                        icon: const Icon(Icons.chat_bubble_outline, size: 16),
+                        label: Text(
+                          booking.status == 'Completed'
+                              ? 'View Chat History'
+                              : 'Message Driver',
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.blueGrey,
+                          side: const BorderSide(color: Colors.blueGrey),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ),
                   ],
 
                   // Cancel button

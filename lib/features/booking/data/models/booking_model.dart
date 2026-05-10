@@ -27,10 +27,12 @@ class BookingModel extends BookingEntity {
     super.slotFee,
     super.deliveryFee,
     super.customerName,
+    super.customerPhone,
     super.driverId,
     super.driverName,
     super.driverContact,
     super.driverAccepted,
+    super.deliveryProofUrl,
   });
 
   factory BookingModel.fromJson(Map<String, dynamic> json) {
@@ -98,10 +100,12 @@ class BookingModel extends BookingEntity {
           ? (json['deliveryFee'] as num).toDouble()
           : 0.0,
       customerName: json['customerName'] as String?,
+        customerPhone: json['customerPhone'] as String?,
       driverId: json['driverId'] as String?,
       driverName: json['driverName'] as String?,
       driverContact: json['driverContact'] as String?,
       driverAccepted: json['driverAccepted'] as bool?,
+      deliveryProofUrl: json['deliveryProofUrl'] as String?,
     );
   }
 
@@ -132,10 +136,12 @@ class BookingModel extends BookingEntity {
       'slotFee': slotFee,
       'deliveryFee': deliveryFee,
       if (customerName != null) 'customerName': customerName,
+      if (customerPhone != null) 'customerPhone': customerPhone,
       if (driverId != null) 'driverId': driverId,
       if (driverName != null) 'driverName': driverName,
       if (driverContact != null) 'driverContact': driverContact,
       if (driverAccepted != null) 'driverAccepted': driverAccepted,
+      if (deliveryProofUrl != null) 'deliveryProofUrl': deliveryProofUrl,
       'createdAt': createdAt.toIso8601String(),
     };
   }
@@ -167,10 +173,12 @@ class BookingModel extends BookingEntity {
       slotFee: entity.slotFee,
       deliveryFee: entity.deliveryFee,
       customerName: entity.customerName,
+      customerPhone: entity.customerPhone,
       driverId: entity.driverId,
       driverName: entity.driverName,
       driverContact: entity.driverContact,
       driverAccepted: entity.driverAccepted,
+      deliveryProofUrl: entity.deliveryProofUrl,
     );
   }
 }

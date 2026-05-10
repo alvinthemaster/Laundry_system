@@ -4,10 +4,12 @@ import 'package:laundry_system/core/utils/app_utils.dart';
 import 'package:laundry_system/features/auth/presentation/pages/login_page.dart';
 import 'package:laundry_system/features/auth/presentation/pages/profile_page.dart';
 import 'package:laundry_system/features/auth/presentation/providers/auth_provider.dart';
+import 'package:laundry_system/features/booking/data/models/machine_model.dart';
 import 'package:laundry_system/features/booking/domain/entities/booking_entity.dart';
 import 'package:laundry_system/features/booking/presentation/pages/multi_step_booking_page.dart';
 import 'package:laundry_system/features/booking/presentation/pages/booking_details_page.dart';
 import 'package:laundry_system/features/booking/presentation/providers/booking_provider.dart';
+import 'package:laundry_system/features/messaging/presentation/providers/chat_provider.dart';
 import 'package:laundry_system/features/receipt/presentation/pages/receipt_list_page.dart';
 import 'package:intl/intl.dart';
 
@@ -89,18 +91,18 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
   
   Color _getStatusColor(String status) {
-    switch (status) {
-      case 'Pending':
+    switch (status.trim().toLowerCase()) {
+      case 'pending':
         return Colors.orange;
-      case 'Confirmed':
+      case 'confirmed':
         return Colors.blue;
-      case 'Washing':
+      case 'washing':
         return Colors.purple;
-      case 'Ready':
+      case 'ready':
         return Colors.teal;
-      case 'Completed':
+      case 'completed':
         return Colors.green;
-      case 'Cancelled':
+      case 'cancelled':
         return Colors.red;
       default:
         return Colors.grey;
@@ -141,7 +143,14 @@ class _HomePageState extends ConsumerState<HomePage> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
     final bookingState = ref.watch(bookingProvider);
+    final machinesAsync = ref.watch(machinesProvider);
     final user = authState.user;
+
+    // Determine if any machine is active
+    final hasActiveMachine = machinesAsync.maybeWhen(
+      data: (machines) => machines.any((m) => m.isActive),
+      orElse: () => true, // Default to enabled while loading
+    );
     
     // Listen for auth state changes and reload bookings when user becomes available
     ref.listen<AuthState>(authProvider, (previous, next) {
@@ -174,23 +183,26 @@ class _HomePageState extends ConsumerState<HomePage> {
       body: IndexedStack(
         index: _currentTabIndex,
         children: [
-          _buildBookingsBody(user, bookingState),
+          _buildBookingsBody(user, bookingState, machinesAsync),
           const ReceiptListPage(),
         ],
       ),
       floatingActionButton: _currentTabIndex == 0
           ? FloatingActionButton.extended(
-              onPressed: () async {
-                final result = await Navigator.of(context).push(
-                  MaterialPageRoute(
-                      builder: (_) => const MultiStepBookingPage()),
-                );
-                if (result == true && user != null && user.uid.isNotEmpty) {
-                  await ref
-                      .read(bookingProvider.notifier)
-                      .getUserBookings(user.uid);
-                }
-              },
+              backgroundColor: hasActiveMachine ? null : Colors.grey,
+              onPressed: hasActiveMachine
+                  ? () async {
+                      final result = await Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const MultiStepBookingPage()),
+                      );
+                      if (result == true && user != null && user.uid.isNotEmpty) {
+                        await ref
+                            .read(bookingProvider.notifier)
+                            .getUserBookings(user.uid);
+                      }
+                    }
+                  : null,
               icon: const Icon(Icons.add),
               label: const Text('New Booking'),
             )
@@ -215,7 +227,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   // ── Bookings Tab Body ──
-  Widget _buildBookingsBody(dynamic user, BookingState bookingState) {
+  Widget _buildBookingsBody(dynamic user, BookingState bookingState, AsyncValue<List<MachineModel>> machinesAsync) {
     return RefreshIndicator(
       onRefresh: () async {
         if (user != null && user.uid.isNotEmpty) {
@@ -255,6 +267,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                 ],
               ),
             ),
+
+            // Machine Status Section
+            _buildMachineStatusSection(machinesAsync),
 
             // Bookings Section
             Padding(
@@ -473,6 +488,82 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  Widget _buildMachineStatusSection(AsyncValue<List<MachineModel>> machinesAsync) {
+    return machinesAsync.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        child: LinearProgressIndicator(),
+      ),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (machines) {
+        if (machines.isEmpty) return const SizedBox.shrink();
+
+        final activeCount = machines.where((m) => m.isActive).length;
+        final inactiveCount = machines.where((m) => !m.isActive).length;
+        final hasActive = activeCount > 0;
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+          child: Row(
+            children: [
+              const Icon(Icons.local_laundry_service, size: 16, color: Colors.grey),
+              const SizedBox(width: 6),
+              Text(
+                'Machines:',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              ),
+              const SizedBox(width: 8),
+              _machineBadge('$activeCount Active', true),
+              const SizedBox(width: 6),
+              _machineBadge('$inactiveCount Inactive', false),
+              if (!hasActive) ...[
+                const SizedBox(width: 8),
+                Icon(Icons.warning_amber_rounded, size: 16, color: Colors.red.shade600),
+                const SizedBox(width: 4),
+                Text(
+                  'Booking unavailable',
+                  style: TextStyle(fontSize: 12, color: Colors.red.shade700, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _machineBadge(String name, bool isActive) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: isActive ? Colors.green.shade50 : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isActive ? Colors.green.shade300 : Colors.grey.shade400,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isActive ? Icons.check_circle : Icons.cancel,
+            size: 14,
+            color: isActive ? Colors.green.shade700 : Colors.grey.shade500,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            name,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: isActive ? Colors.green.shade800 : Colors.grey.shade600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBookingCard(BookingEntity booking) {
     return Card(
       elevation: 3,
@@ -554,33 +645,45 @@ class _HomePageState extends ConsumerState<HomePage> {
                                     const Icon(Icons.person_outline,
                                         size: 13, color: Colors.grey),
                                     const SizedBox(width: 4),
-                                    Text(
-                                      booking.customerName ?? 'Customer',
-                                      style: TextStyle(
-                                        color: Colors.grey.shade600,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                    if (booking.categories.isNotEmpty) ...[
-                                      const SizedBox(width: 8),
-                                      const Icon(
-                                          Icons.local_laundry_service,
-                                          size: 13,
-                                          color: Colors.grey),
-                                      const SizedBox(width: 2),
-                                      Text(
-                                        booking.categories
-                                            .map((c) =>
-                                                c['name'] as String? ?? '')
-                                            .join(', '),
+                                    Expanded(
+                                      child: Text(
+                                        booking.customerName ?? 'Customer',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
                                           color: Colors.grey.shade600,
                                           fontSize: 13,
                                         ),
                                       ),
-                                    ],
+                                    ),
                                   ],
                                 ),
+                                if (booking.categories.isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Row(
+                                    children: [
+                                      const Icon(
+                                          Icons.local_laundry_service,
+                                          size: 13,
+                                          color: Colors.grey),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          booking.categories
+                                              .map((c) =>
+                                                  c['name'] as String? ?? '')
+                                              .join(', '),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: Colors.grey.shade600,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -636,6 +739,8 @@ class _HomePageState extends ConsumerState<HomePage> {
                             ),
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        _buildUnreadChatIndicator(booking),
                       ],
                     ),
                   ],
@@ -809,5 +914,58 @@ class _HomePageState extends ConsumerState<HomePage> {
     }
 
     return filtered;
+  }
+
+  Widget _buildUnreadChatIndicator(BookingEntity booking) {
+    return Consumer(
+      builder: (context, ref, _) {
+        final roomAsync = ref.watch(chatRoomProvider(booking.bookingId));
+
+        return roomAsync.when(
+          loading: () => const SizedBox.shrink(),
+          error: (_, __) => const SizedBox.shrink(),
+          data: (room) {
+            if (room == null || room.lastMessageAt == null) {
+              return const SizedBox.shrink();
+            }
+
+            final unread = (room.lastSenderRole?.toLowerCase() == 'driver') &&
+                (room.customerLastReadAt == null ||
+                    room.lastMessageAt!.isAfter(room.customerLastReadAt!));
+
+            if (!unread) return const SizedBox.shrink();
+
+            return Container(
+              constraints: const BoxConstraints(minHeight: 18),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.amber.shade700, width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.chat_bubble,
+                    size: 11,
+                    color: Colors.amber.shade900,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'New',
+                    style: TextStyle(
+                      color: Colors.amber.shade900,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 }

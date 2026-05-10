@@ -24,6 +24,10 @@ dependencies:
   cupertino_icons: ^1.0.2
   google_fonts: ^6.1.0
   
+  # Image / Storage
+  image_picker: ^1.0.7
+  firebase_storage: ^11.6.0
+
   # Utilities
   intl: ^0.18.1
   uuid: ^4.2.2

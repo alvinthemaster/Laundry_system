@@ -1,6 +1,9 @@
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:laundry_system/features/booking/data/datasources/booking_data_source.dart';
 import 'package:laundry_system/features/booking/data/datasources/machine_data_source.dart';
+import 'package:laundry_system/features/booking/data/models/booking_model.dart';
 import 'package:laundry_system/features/booking/data/models/machine_model.dart';
 import 'package:laundry_system/features/booking/data/models/machine_slot_model.dart';
 import 'package:laundry_system/features/booking/data/repositories/booking_repository_impl.dart';
@@ -60,6 +63,11 @@ final updateDeliveryStatusUseCaseProvider = Provider<UpdateDeliveryStatusUseCase
   return UpdateDeliveryStatusUseCase(ref.read(bookingRepositoryProvider));
 });
 
+final generateDeliveryReceiptUseCaseProvider =
+    Provider<GenerateDeliveryReceiptUseCase>((ref) {
+  return GenerateDeliveryReceiptUseCase(ref.read(bookingRepositoryProvider));
+});
+
 // Booking State
 class BookingState {
   final bool isLoading;
@@ -100,6 +108,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
   final GetDriverBookingsUseCase _getDriverBookingsUseCase;
   final NotifyCustomerArrivedUseCase _notifyCustomerArrivedUseCase;
   final UpdateDeliveryStatusUseCase _updateDeliveryStatusUseCase;
+  final GenerateDeliveryReceiptUseCase _generateDeliveryReceiptUseCase;
   
   BookingNotifier(
     this._createBookingUseCase,
@@ -111,7 +120,81 @@ class BookingNotifier extends StateNotifier<BookingState> {
     this._getDriverBookingsUseCase,
     this._notifyCustomerArrivedUseCase,
     this._updateDeliveryStatusUseCase,
+    this._generateDeliveryReceiptUseCase,
   ) : super(const BookingState());
+
+  // ── Real-time driver bookings stream ────────────────────────────────────
+  StreamSubscription<QuerySnapshot>? _driverBookingsSubscription;
+  final Set<String> _seededBookingIds = {};
+  bool _listenerSeeded = false;
+
+  /// Starts a real-time Firestore stream for driver bookings.
+  /// Updates the booking list automatically and shows a local notification
+  /// whenever a new booking enters the query result set.
+  void listenToDriverBookings(String driverId) {
+    if (driverId.isEmpty) return;
+    _driverBookingsSubscription?.cancel();
+    _seededBookingIds.clear();
+    _listenerSeeded = false;
+    state = state.copyWith(isLoading: true);
+
+    _driverBookingsSubscription = FirebaseFirestore.instance
+        .collection('bookings')
+        .where('driverId', isEqualTo: driverId)
+        .snapshots()
+        .listen((snapshot) {
+      // Convert docs → entities (delivery type only)
+      final bookings = snapshot.docs
+          .where((doc) {
+            final data = doc.data();
+            final type =
+                (data['bookingType'] ?? data['orderType'] ?? '').toString();
+            return type == 'delivery';
+          })
+          .map((doc) =>
+              BookingModel.fromJson({...doc.data(), 'bookingId': doc.id})
+                  as BookingEntity)
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      state = state.copyWith(isLoading: false, bookings: bookings);
+
+      if (!_listenerSeeded) {
+        // Seed known IDs on first snapshot — no notification for existing
+        for (final doc in snapshot.docs) {
+          _seededBookingIds.add(doc.id);
+        }
+        _listenerSeeded = true;
+        return;
+      }
+
+      // Detect newly assigned bookings (UI already updated above via state)
+      for (final change in snapshot.docChanges) {
+        if (change.type == DocumentChangeType.added &&
+            !_seededBookingIds.contains(change.doc.id)) {
+          _seededBookingIds.add(change.doc.id);
+          // Notification is handled by DriverDeliveryListener (started at login).
+          // Just mark the flag so the catch-up doesn't re-notify on next open.
+          change.doc.reference
+              .update({'driverNotified': true}).ignore();
+        }
+      }
+    }, onError: (error) {
+      state = state.copyWith(isLoading: false, error: error.toString());
+    });
+  }
+
+  void stopDriverBookingsListener() {
+    _driverBookingsSubscription?.cancel();
+    _driverBookingsSubscription = null;
+    _listenerSeeded = false;
+  }
+
+  @override
+  void dispose() {
+    _driverBookingsSubscription?.cancel();
+    super.dispose();
+  }
   
   Future<bool> createBooking({
     required String userId,
@@ -130,6 +213,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
     double? slotFee,
     double? deliveryFee,
     String? customerName,
+    String? customerPhone,
     String? serviceType,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
@@ -151,6 +235,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
       slotFee: slotFee,
       deliveryFee: deliveryFee,
       customerName: customerName,
+      customerPhone: customerPhone,
       serviceType: serviceType,
     );
     
@@ -252,6 +337,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
               slotFee: booking.slotFee,
               deliveryFee: booking.deliveryFee,
               customerName: booking.customerName,
+              customerPhone: booking.customerPhone,
               driverId: booking.driverId,
               driverName: booking.driverName,
               driverContact: booking.driverContact,
@@ -318,6 +404,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
               slotFee: booking.slotFee,
               deliveryFee: booking.deliveryFee,
               customerName: booking.customerName,
+              customerPhone: booking.customerPhone,
               driverId: booking.driverId,
               driverName: booking.driverName,
               driverContact: booking.driverContact,
@@ -385,6 +472,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
               slotFee: b.slotFee,
               deliveryFee: b.deliveryFee,
               customerName: b.customerName,
+              customerPhone: b.customerPhone,
               driverId: b.driverId,
               driverName: b.driverName,
               driverContact: b.driverContact,
@@ -414,6 +502,25 @@ class BookingNotifier extends StateNotifier<BookingState> {
       (_) => true,
     );
   }
+
+  Future<bool> generateDeliveryReceipt({
+    required String bookingId,
+    required List<int> imageBytes,
+    required String imageFileName,
+  }) async {
+    final result = await _generateDeliveryReceiptUseCase(
+      bookingId: bookingId,
+      imageBytes: imageBytes,
+      imageFileName: imageFileName,
+    );
+    return result.fold(
+      (failure) {
+        state = state.copyWith(error: failure.toString());
+        return false;
+      },
+      (_) => true,
+    );
+  }
 }
 
 // Booking Provider
@@ -428,6 +535,7 @@ final bookingProvider = StateNotifierProvider<BookingNotifier, BookingState>((re
     ref.read(getDriverBookingsUseCaseProvider),
     ref.read(notifyCustomerArrivedUseCaseProvider),
     ref.read(updateDeliveryStatusUseCaseProvider),
+    ref.read(generateDeliveryReceiptUseCaseProvider),
   );
 });
 

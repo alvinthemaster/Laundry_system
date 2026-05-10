@@ -191,6 +191,8 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
       timeSlot: _bookingType == AppConstants.bookingTypePickup ? _selectedTimeSlot : null,
       paymentMethod: paymentMethod,
       totalAmount: total,
+      customerName: user.fullName,
+      customerPhone: user.phoneNumber,
     );
 
     if (!mounted) return;

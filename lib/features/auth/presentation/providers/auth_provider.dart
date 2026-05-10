@@ -1,6 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:laundry_system/core/constants/app_constants.dart';
 import 'package:laundry_system/core/services/notification_service.dart';
 import 'package:laundry_system/core/services/booking_status_listener.dart';
+import 'package:laundry_system/core/services/chat_notification_listener.dart';
+import 'package:laundry_system/core/services/driver_delivery_listener.dart';
 import 'package:laundry_system/features/auth/data/datasources/auth_data_source.dart';
 import 'package:laundry_system/features/auth/data/repositories/auth_repository_impl.dart';
 import 'package:laundry_system/features/auth/domain/entities/user_entity.dart';
@@ -152,8 +155,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
         state = state.copyWith(isLoading: false, user: user);
         // Save FCM token for push notifications
         await NotificationService().saveFCMToken(user.uid);
-        // Start listening for booking status changes
-        BookingStatusListener().startListening(user.uid);
+        if (user.role == AppConstants.roleDriver) {
+          // Drivers get notified of new delivery assignments
+          DriverDeliveryListener().startListening(user.uid);
+          ChatNotificationListener().startListening(userId: user.uid, role: 'driver');
+        } else {
+          // Customers get notified of status changes and rider-arrived events
+          BookingStatusListener().startListening(user.uid);
+          ChatNotificationListener().startListening(userId: user.uid, role: 'customer');
+        }
         return true;
       },
     );
@@ -162,8 +172,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
   // ---- Logout ----
   Future<void> logout() async {
     state = state.copyWith(isLoading: true);
-    // Stop listening for booking changes
+    // Stop all listeners
     BookingStatusListener().stopListening();
+    DriverDeliveryListener().stopListening();
+    ChatNotificationListener().stopListening();
     // Remove FCM token before logout
     if (state.user != null) {
       await NotificationService().removeFCMToken(state.user!.uid);
@@ -183,8 +195,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
           state = state.copyWith(isLoading: false, user: user);
           // Save FCM token when user is loaded
           await NotificationService().saveFCMToken(user.uid);
-          // Start listening for booking status changes
-          BookingStatusListener().startListening(user.uid);
+          if (user.role == AppConstants.roleDriver) {
+            DriverDeliveryListener().startListening(user.uid);
+            ChatNotificationListener().startListening(userId: user.uid, role: 'driver');
+          } else {
+            BookingStatusListener().startListening(user.uid);
+            ChatNotificationListener().startListening(userId: user.uid, role: 'customer');
+          }
         } else {
           state = state.copyWith(isLoading: false, clearUser: true);
         }

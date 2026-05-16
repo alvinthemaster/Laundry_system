@@ -27,6 +27,7 @@ class CreateBookingUseCase {
     String? customerName,
     String? customerPhone,
     String? serviceType,
+    String? paymentProofUrl,
   }) {
     return repository.createBooking(
       userId: userId,
@@ -47,6 +48,7 @@ class CreateBookingUseCase {
       customerName: customerName,
       customerPhone: customerPhone,
       serviceType: serviceType,
+      paymentProofUrl: paymentProofUrl,
     );
   }
 }
@@ -168,6 +170,28 @@ class NotifyCustomerArrivedUseCase {
     return repository.notifyCustomerArrived(
       bookingId: bookingId,
       customerId: customerId,
+    );
+  }
+}
+
+class CompleteBookingPaymentUseCase {
+  final BookingRepository repository;
+
+  const CompleteBookingPaymentUseCase(this.repository);
+
+  Future<Either<dynamic, void>> call({
+    required String bookingId,
+    required String userId,
+    required double amount,
+    required String method,
+    required String paymentProofUrl,
+  }) {
+    return repository.completeBookingPayment(
+      bookingId: bookingId,
+      userId: userId,
+      amount: amount,
+      method: method,
+      paymentProofUrl: paymentProofUrl,
     );
   }
 }

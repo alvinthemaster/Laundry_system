@@ -26,6 +26,7 @@ class AppConstants {
   // Payment Statuses
   static const String paymentUnpaid = 'Half Paid';
   static const String paymentPaid = 'Paid';
+  static const String paymentFullyPaid = 'Fully Paid';
   
   // Payment Methods
   static const String paymentGCash = 'GCash';

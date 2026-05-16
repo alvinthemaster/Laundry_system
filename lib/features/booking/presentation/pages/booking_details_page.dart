@@ -1,4 +1,6 @@
 ﻿import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:laundry_system/core/services/pricing_service.dart';
@@ -38,6 +40,8 @@ class BookingDetailsPage extends ConsumerWidget {
 
   String _normalizePaymentStatus(String status) {
     switch (status.toLowerCase()) {
+      case 'fully paid':
+        return 'Fully Paid';
       case 'paid':
         return 'Paid';
       case 'half paid':
@@ -207,10 +211,11 @@ class BookingDetailsPage extends ConsumerWidget {
                     const SizedBox(height: 12),
                   ],
 
-                  // Driver info for delivery bookings
-                  if (booking.bookingType == 'delivery' &&
+                    // Driver info for assigned bookings (delivery/pickup)
+                    if ((booking.bookingType == 'delivery' ||
+                        booking.bookingType == 'pickup') &&
                       (booking.driverName != null ||
-                          booking.driverContact != null)) ...[
+                        booking.driverContact != null)) ...[
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
@@ -334,13 +339,23 @@ if (booking.timeSlot != null) ...[
                         if (booking.addOnsTotal > 0) ...[
                           const SizedBox(height: 4),
                           ...booking.selectedAddOns.map(
-                            (addon) => Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: _payRow(
-                                '  ${addon['name'] ?? ''}',
-                                '+${AppUtils.formatCurrency((addon['price'] as num?)?.toDouble() ?? 0.0)}',
-                              ),
-                            ),
+                            (addon) {
+                              final addonName = (addon['name'] as String?) ?? '';
+                              final addonPrice =
+                                  (addon['price'] as num?)?.toDouble() ?? 0.0;
+                              final showZeroForFabricConditioner =
+                                  booking.status.trim().toLowerCase() == 'pending' &&
+                                      addonName.trim().toLowerCase() ==
+                                          'fabric conditioner';
+
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: _payRow(
+                                  '  $addonName',
+                                  '+${AppUtils.formatCurrency(showZeroForFabricConditioner ? 0.0 : addonPrice)}',
+                                ),
+                              );
+                            },
                           ),
                         ],
                         const SizedBox(height: 8),
@@ -378,7 +393,8 @@ if (booking.timeSlot != null) ...[
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 12, vertical: 4),
                               decoration: BoxDecoration(
-                                color: booking.paymentStatus.toLowerCase() == 'paid'
+                                color: (booking.paymentStatus.toLowerCase() == 'paid' ||
+                                        booking.paymentStatus.toLowerCase() == 'fully paid')
                                     ? Colors.green.withValues(alpha: 0.12)
                                     : booking.paymentStatus.toLowerCase() == 'half paid'
                                         ? Colors.orange.withValues(alpha: 0.12)
@@ -388,7 +404,8 @@ if (booking.timeSlot != null) ...[
                               child: Text(
                                 _normalizePaymentStatus(booking.paymentStatus),
                                 style: TextStyle(
-                                  color: booking.paymentStatus.toLowerCase() == 'paid'
+                                  color: (booking.paymentStatus.toLowerCase() == 'paid' ||
+                                          booking.paymentStatus.toLowerCase() == 'fully paid')
                                       ? Colors.green
                                       : booking.paymentStatus.toLowerCase() == 'half paid'
                                           ? Colors.orange
@@ -403,6 +420,21 @@ if (booking.timeSlot != null) ...[
                       ],
                     ),
                   ),
+
+                  if (booking.paymentProofUrl != null &&
+                      booking.paymentProofUrl!.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text('Attached Payment Screenshot',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: _buildProofImage(booking.paymentProofUrl!),
+                    ),
+                  ],
 
                   const Divider(height: 30),
                   Text(
@@ -561,6 +593,57 @@ if (booking.timeSlot != null) ...[
                   fontSize: 14, fontWeight: FontWeight.w500)),
         ],
       );
+
+  Widget _buildProofImage(String url) {
+    if (url.startsWith('data:image')) {
+      final commaIndex = url.indexOf(',');
+      if (commaIndex != -1) {
+        try {
+          final bytes = base64Decode(url.substring(commaIndex + 1));
+          return Image.memory(
+            Uint8List.fromList(bytes),
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _brokenImagePlaceholder(),
+          );
+        } catch (_) {
+          return _brokenImagePlaceholder();
+        }
+      }
+      return _brokenImagePlaceholder();
+    }
+
+    return Image.network(
+      url,
+      width: double.infinity,
+      fit: BoxFit.cover,
+      loadingBuilder: (ctx, child, progress) {
+        if (progress == null) return child;
+        return SizedBox(
+          height: 180,
+          child: Center(
+            child: CircularProgressIndicator(
+              value: progress.expectedTotalBytes != null
+                  ? progress.cumulativeBytesLoaded /
+                      progress.expectedTotalBytes!
+                  : null,
+            ),
+          ),
+        );
+      },
+      errorBuilder: (_, __, ___) => _brokenImagePlaceholder(),
+    );
+  }
+
+  Widget _brokenImagePlaceholder() {
+    return Container(
+      height: 120,
+      color: Colors.grey.shade100,
+      child: const Center(
+        child: Icon(Icons.broken_image, size: 40, color: Colors.grey),
+      ),
+    );
+  }
 }
 
 // ===========================================================================

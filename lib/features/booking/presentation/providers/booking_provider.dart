@@ -68,6 +68,11 @@ final generateDeliveryReceiptUseCaseProvider =
   return GenerateDeliveryReceiptUseCase(ref.read(bookingRepositoryProvider));
 });
 
+final completeBookingPaymentUseCaseProvider =
+    Provider<CompleteBookingPaymentUseCase>((ref) {
+  return CompleteBookingPaymentUseCase(ref.read(bookingRepositoryProvider));
+});
+
 // Booking State
 class BookingState {
   final bool isLoading;
@@ -109,6 +114,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
   final NotifyCustomerArrivedUseCase _notifyCustomerArrivedUseCase;
   final UpdateDeliveryStatusUseCase _updateDeliveryStatusUseCase;
   final GenerateDeliveryReceiptUseCase _generateDeliveryReceiptUseCase;
+  final CompleteBookingPaymentUseCase _completeBookingPaymentUseCase;
   
   BookingNotifier(
     this._createBookingUseCase,
@@ -121,6 +127,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
     this._notifyCustomerArrivedUseCase,
     this._updateDeliveryStatusUseCase,
     this._generateDeliveryReceiptUseCase,
+    this._completeBookingPaymentUseCase,
   ) : super(const BookingState());
 
   // ── Real-time driver bookings stream ────────────────────────────────────
@@ -143,17 +150,17 @@ class BookingNotifier extends StateNotifier<BookingState> {
         .where('driverId', isEqualTo: driverId)
         .snapshots()
         .listen((snapshot) {
-      // Convert docs → entities (delivery type only)
-      final bookings = snapshot.docs
+        // Convert docs -> entities (supports both delivery and pickup bookings)
+        final bookings = snapshot.docs
           .where((doc) {
-            final data = doc.data();
-            final type =
-                (data['bookingType'] ?? data['orderType'] ?? '').toString();
-            return type == 'delivery';
+          final data = doc.data();
+          final type =
+            (data['bookingType'] ?? data['orderType'] ?? '').toString();
+          return type == 'delivery' || type == 'pickup';
           })
           .map((doc) =>
-              BookingModel.fromJson({...doc.data(), 'bookingId': doc.id})
-                  as BookingEntity)
+            BookingModel.fromJson({...doc.data(), 'bookingId': doc.id})
+              as BookingEntity)
           .toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
@@ -215,6 +222,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
     String? customerName,
     String? customerPhone,
     String? serviceType,
+    String? paymentProofUrl,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
     
@@ -237,6 +245,7 @@ class BookingNotifier extends StateNotifier<BookingState> {
       customerName: customerName,
       customerPhone: customerPhone,
       serviceType: serviceType,
+      paymentProofUrl: paymentProofUrl,
     );
     
     return result.fold(
@@ -521,6 +530,71 @@ class BookingNotifier extends StateNotifier<BookingState> {
       (_) => true,
     );
   }
+
+  Future<bool> completeBookingPayment({
+    required String bookingId,
+    required String userId,
+    required double amount,
+    required String method,
+    required String paymentProofUrl,
+  }) async {
+    final result = await _completeBookingPaymentUseCase(
+      bookingId: bookingId,
+      userId: userId,
+      amount: amount,
+      method: method,
+      paymentProofUrl: paymentProofUrl,
+    );
+    return result.fold(
+      (failure) {
+        state = state.copyWith(error: failure.toString());
+        return false;
+      },
+      (_) {
+        final updated = state.bookings.map((b) {
+          if (b.bookingId == bookingId) {
+            return BookingEntity(
+              bookingId: b.bookingId,
+              userId: b.userId,
+              categories: b.categories,
+              categoryTotal: b.categoryTotal,
+              selectedAddOns: b.selectedAddOns,
+              addOnsTotal: b.addOnsTotal,
+              bookingFee: b.bookingFee,
+              totalAmount: b.totalAmount,
+              bookingType: b.bookingType,
+              deliveryAddress: b.deliveryAddress,
+              pickupDate: b.pickupDate,
+              timeSlot: b.timeSlot,
+              pickupTime: b.pickupTime,
+              serviceType: b.serviceType,
+              status: b.status,
+              paymentStatus: 'Fully Paid',
+              paymentMethod: method,
+              specialInstructions: b.specialInstructions,
+              createdAt: b.createdAt,
+              machineId: b.machineId,
+              machineName: b.machineName,
+              slotId: b.slotId,
+              slotFee: b.slotFee,
+              deliveryFee: b.deliveryFee,
+              customerName: b.customerName,
+              customerPhone: b.customerPhone,
+              driverId: b.driverId,
+              driverName: b.driverName,
+              driverContact: b.driverContact,
+              deliveryProofUrl: b.deliveryProofUrl,
+              paymentProofUrl: paymentProofUrl,
+            );
+          }
+          return b;
+        }).toList();
+
+        state = state.copyWith(bookings: updated);
+        return true;
+      },
+    );
+  }
 }
 
 // Booking Provider
@@ -536,6 +610,7 @@ final bookingProvider = StateNotifierProvider<BookingNotifier, BookingState>((re
     ref.read(notifyCustomerArrivedUseCaseProvider),
     ref.read(updateDeliveryStatusUseCaseProvider),
     ref.read(generateDeliveryReceiptUseCaseProvider),
+    ref.read(completeBookingPaymentUseCaseProvider),
   );
 });
 

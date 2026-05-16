@@ -29,6 +29,7 @@ class BookingRepositoryImpl implements BookingRepository {
     String? customerName,
     String? customerPhone,
     String? serviceType,
+    String? paymentProofUrl,
   }) async {
     try {
       final booking = await dataSource.createBooking(
@@ -50,6 +51,7 @@ class BookingRepositoryImpl implements BookingRepository {
         customerName: customerName,
         customerPhone: customerPhone,
         serviceType: serviceType,
+        paymentProofUrl: paymentProofUrl,
       );
       return Either.right(booking);
     } catch (e) {
@@ -171,6 +173,28 @@ class BookingRepositoryImpl implements BookingRepository {
       await dataSource.notifyCustomerArrived(
         bookingId: bookingId,
         customerId: customerId,
+      );
+      return Either.right(null);
+    } catch (e) {
+      return Either.left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> completeBookingPayment({
+    required String bookingId,
+    required String userId,
+    required double amount,
+    required String method,
+    required String paymentProofUrl,
+  }) async {
+    try {
+      await dataSource.completeBookingPayment(
+        bookingId: bookingId,
+        userId: userId,
+        amount: amount,
+        method: method,
+        paymentProofUrl: paymentProofUrl,
       );
       return Either.right(null);
     } catch (e) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:laundry_system/core/services/pricing_service.dart';
 import 'package:laundry_system/core/utils/app_utils.dart';
 import 'package:laundry_system/features/auth/presentation/pages/login_page.dart';
 import 'package:laundry_system/features/auth/presentation/pages/profile_page.dart';
@@ -8,6 +9,7 @@ import 'package:laundry_system/features/booking/data/models/machine_model.dart';
 import 'package:laundry_system/features/booking/domain/entities/booking_entity.dart';
 import 'package:laundry_system/features/booking/presentation/pages/multi_step_booking_page.dart';
 import 'package:laundry_system/features/booking/presentation/pages/booking_details_page.dart';
+import 'package:laundry_system/features/booking/presentation/pages/payment_page.dart';
 import 'package:laundry_system/features/booking/presentation/providers/booking_provider.dart';
 import 'package:laundry_system/features/messaging/presentation/providers/chat_provider.dart';
 import 'package:laundry_system/features/receipt/presentation/pages/receipt_list_page.dart';
@@ -111,6 +113,8 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   String _normalizePaymentStatus(String status) {
     switch (status.toLowerCase()) {
+      case 'fully paid':
+        return 'Fully Paid';
       case 'paid':
         return 'Paid';
       case 'half paid':
@@ -126,6 +130,8 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Color _getPaymentColor(String status) {
     switch (status.toLowerCase()) {
+      case 'fully paid':
+        return Colors.green;
       case 'paid':
         return Colors.green;
       case 'half paid':
@@ -136,6 +142,119 @@ class _HomePageState extends ConsumerState<HomePage> {
         return Colors.red;
       default:
         return Colors.grey;
+    }
+  }
+
+  bool _isStaffUpdatedBooking(BookingEntity booking) {
+    final status = booking.status.trim().toLowerCase();
+    const staffUpdatedStatuses = {
+      'confirmed',
+      'washing',
+      'ready',
+      'pickup',
+      'out for delivery',
+      'completed',
+    };
+    return staffUpdatedStatuses.contains(status);
+  }
+
+  bool _canShowPayButton(BookingEntity booking) {
+    final payment = booking.paymentStatus.trim().toLowerCase();
+    final needsPayment = payment != 'fully paid';
+    final activeBooking = booking.status.trim().toLowerCase() != 'cancelled';
+    return _isStaffUpdatedBooking(booking) && needsPayment && activeBooking;
+  }
+
+  double _categoryOnlyAmount(BookingEntity booking) {
+    if (booking.categoryTotal > 0) return booking.categoryTotal;
+
+    // Fallback for legacy bookings where categoryTotal/computedPrice may be zero.
+    return booking.categories.fold<double>(0.0, (sum, category) {
+      final name = (category['name'] as String?) ?? '';
+      final weight = (category['weight'] as num?)?.toDouble() ?? 0.0;
+      final storedPrice = (category['computedPrice'] as num?)?.toDouble() ?? 0.0;
+      final resolvedPrice = storedPrice > 0
+          ? storedPrice
+          : PricingService.calculateCategoryPrice(category: name, weight: weight);
+      return sum + resolvedPrice;
+    });
+  }
+
+  Future<void> _payUpdatedBooking(BookingEntity booking) async {
+    final amountDue = _categoryOnlyAmount(booking);
+
+    final paymentResult = await Navigator.of(context).push<PaymentResult>(
+      MaterialPageRoute(
+        builder: (_) => PaymentPage(
+          totalAmount: amountDue,
+          reservationDetails: [
+            {
+              'label': 'Booking ID',
+              'value': booking.bookingId.substring(0, 8),
+            },
+            {
+              'label': 'Booking Type',
+              'value': booking.bookingType.toUpperCase(),
+            },
+            {
+              'label': 'Status',
+              'value': booking.status,
+            },
+            {
+              'label': 'Machine',
+              'value': booking.machineName ?? 'Laundry Booking',
+            },
+            {
+              'label': 'Current Payment',
+              'value': _normalizePaymentStatus(booking.paymentStatus),
+            },
+            {
+              'label': 'Booking Fee',
+              'value': 'Paid',
+            },
+            if (booking.deliveryFee > 0)
+              {
+                'label': 'Delivery Fee',
+                'value': 'Paid',
+              },
+            {
+              'label': 'Amount Due',
+              'value': '₱${amountDue.round()}',
+            },
+          ],
+          screenTitle: 'Complete Payment',
+          submitButtonLabel: 'Submit Payment',
+          successMessage: 'Payment submitted successfully.',
+          amountSummaryLabel: 'Amount Due (Laundry Items Only)',
+          onPaymentComplete: () {},
+        ),
+      ),
+    );
+
+    if (paymentResult == null ||
+        paymentResult.paymentProofDataUri == null ||
+        !mounted) {
+      return;
+    }
+
+    final success = await ref.read(bookingProvider.notifier).completeBookingPayment(
+          bookingId: booking.bookingId,
+          userId: booking.userId,
+          amount: amountDue,
+          method: paymentResult.paymentMethod,
+          paymentProofUrl: paymentResult.paymentProofDataUri!,
+        );
+
+    if (!mounted) return;
+    if (success) {
+      AppUtils.showSnackBar(context, 'Payment updated to Fully Paid.');
+    } else {
+      final error = ref.read(bookingProvider).error;
+      AppUtils.showSnackBar(
+        context,
+        error ?? 'Failed to update payment status',
+        isError: true,
+      );
     }
   }
   
@@ -366,7 +485,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                               value: _selectedPaymentFilter,
                               isExpanded: true,
                               icon: const Icon(Icons.arrow_drop_down),
-                              items: ['All', 'Paid', 'Half Paid', 'Unpaid']
+                              items: ['All', 'Fully Paid', 'Paid', 'Half Paid', 'Unpaid']
                                   .map((status) => DropdownMenuItem(
                                         value: status,
                                         child: Row(
@@ -377,7 +496,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                                                 height: 10,
                                                 margin: const EdgeInsets.only(right: 8),
                                                 decoration: BoxDecoration(
-                                                  color: status == 'Paid'
+                                                  color: status == 'Paid' || status == 'Fully Paid'
                                                       ? Colors.green
                                                       : status == 'Half Paid'
                                                           ? Colors.orange
@@ -891,6 +1010,24 @@ class _HomePageState extends ConsumerState<HomePage> {
                     ),
                   ],
                 ),
+                if (_canShowPayButton(booking)) ...[
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _payUpdatedBooking(booking),
+                      icon: const Icon(Icons.qr_code_2, size: 18),
+                      label: const Text('Pay Now'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

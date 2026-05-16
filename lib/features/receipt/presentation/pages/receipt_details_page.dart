@@ -12,6 +12,8 @@ class ReceiptDetailsPage extends StatelessWidget {
 
   Color _statusColor(String status) {
     switch (status.trim().toLowerCase()) {
+      case 'fully paid':
+        return Colors.green;
       case 'paid':
         return Colors.green;
       case 'half paid':

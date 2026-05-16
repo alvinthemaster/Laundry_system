@@ -128,10 +128,7 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
   }
 
   double _calculateTotal() {
-    final categories = _buildCategoriesList();
-    if (categories.isEmpty) return AppConstants.bookingFee;
-    final categoryTotal = PricingService.calculateMultipleCategoriesTotal(categories);
-    return categoryTotal + AppConstants.bookingFee;
+    return _bookingType == AppConstants.bookingTypeDelivery ? 70.0 : 20.0;
   }
 
   Future<void> _selectDate() async {
@@ -152,24 +149,55 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
   Future<void> _proceedToPayment() async {
     if (!_validateCurrentStep()) return;
 
+    final user = ref.read(authProvider).user;
+    if (user == null) {
+      AppUtils.showSnackBar(context, 'User not found', isError: true);
+      return;
+    }
+
     final total = _calculateTotal();
 
-    final paymentMethod = await Navigator.push<String>(
+    final paymentResult = await Navigator.push<PaymentResult>(
       context,
       MaterialPageRoute(
         builder: (context) => PaymentPage(
           totalAmount: total,
+          reservationDetails: [
+            {'label': 'Customer', 'value': user.fullName},
+            {'label': 'Phone', 'value': user.phoneNumber},
+            {'label': 'Booking Type', 'value': _bookingType ?? '-'},
+            {
+              'label': 'Date',
+              'value': _selectedDate != null
+                  ? DateFormat('EEEE, MMM d, yyyy').format(_selectedDate!)
+                  : '-',
+            },
+            {'label': 'Service', 'value': _serviceType ?? '-'},
+            {
+              'label': 'Categories',
+              'value': _selectedCategories.isEmpty
+                  ? '-'
+                  : _selectedCategories.join(', '),
+            },
+            if (_bookingType == AppConstants.bookingTypeDelivery)
+              {
+                'label': 'Delivery Address',
+                'value': _deliveryAddressController.text.trim().isEmpty
+                    ? '-'
+                    : _deliveryAddressController.text.trim(),
+              },
+          ],
           onPaymentComplete: () {},
         ),
       ),
     );
 
-    if (paymentMethod == null || !mounted) return;
+    if (paymentResult == null || !mounted) return;
 
-    await _createBooking(paymentMethod);
+    await _createBooking(paymentResult);
   }
 
-  Future<void> _createBooking(String paymentMethod) async {
+  Future<void> _createBooking(PaymentResult paymentResult) async {
     final user = ref.read(authProvider).user;
     if (user == null) {
       AppUtils.showSnackBar(context, 'User not found', isError: true);
@@ -189,7 +217,8 @@ class _CreateBookingPageState extends ConsumerState<CreateBookingPage> {
           : null,
       pickupDate: _bookingType == AppConstants.bookingTypePickup ? _selectedDate : null,
       timeSlot: _bookingType == AppConstants.bookingTypePickup ? _selectedTimeSlot : null,
-      paymentMethod: paymentMethod,
+      paymentMethod: paymentResult.paymentMethod,
+      paymentProofUrl: paymentResult.paymentProofDataUri,
       totalAmount: total,
       customerName: user.fullName,
       customerPhone: user.phoneNumber,

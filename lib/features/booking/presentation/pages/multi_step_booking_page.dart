@@ -25,6 +25,8 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
   // Step 1: Booking Type
   String _bookingType = AppConstants.bookingTypePickup;
   String? _selectedDeliveryAddress;
+  final TextEditingController _specificDeliveryLocationController =
+      TextEditingController();
   List<DeliveryPriceOption> _deliveryAddressOptions = [];
   bool _isLoadingDeliveryAddresses = false;
   double _deliveryFeeFromDb = AppConstants.deliveryFee;
@@ -57,6 +59,7 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
 
   @override
   void dispose() {
+    _specificDeliveryLocationController.dispose();
     super.dispose();
   }
 
@@ -74,13 +77,32 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
   double get _bookingFee => AppConstants.bookingFee;
 
   double get _totalAmount =>
-      _addOnsTotal + _bookingFee + _deliveryFee;
+      _bookingType == AppConstants.bookingTypeDelivery ? 70.0 : 20.0;
+
+  String? get _deliveryAddressForBooking {
+    if (_bookingType != AppConstants.bookingTypeDelivery ||
+        _selectedDeliveryAddress == null) {
+      return null;
+    }
+
+    final specificLocation = _specificDeliveryLocationController.text.trim();
+    if (specificLocation.isEmpty) {
+      return _selectedDeliveryAddress;
+    }
+
+    return '$_selectedDeliveryAddress - $specificLocation';
+  }
 
   bool _canProceed() {
     switch (_currentStep) {
       case 0: // Booking Type
         if (_bookingType == AppConstants.bookingTypeDelivery &&
             _selectedDeliveryAddress == null) {
+          return false;
+        }
+        if (_bookingType == AppConstants.bookingTypeDelivery &&
+            _selectedDeliveryAddress != null &&
+            _specificDeliveryLocationController.text.trim().isEmpty) {
           return false;
         }
         if (_bookingType == AppConstants.bookingTypeDelivery &&
@@ -141,6 +163,14 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
         if (_bookingType == AppConstants.bookingTypeDelivery &&
             _isLoadingDeliveryFee) {
           return 'Loading delivery fee. Please wait...';
+        }
+        if (_bookingType == AppConstants.bookingTypeDelivery &&
+            _selectedDeliveryAddress == null) {
+          return 'Please select your delivery address';
+        }
+        if (_bookingType == AppConstants.bookingTypeDelivery &&
+            _specificDeliveryLocationController.text.trim().isEmpty) {
+          return 'Please enter your specific delivery location';
         }
         return 'Please enter a delivery address';
       case 1:
@@ -260,30 +290,72 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
       return;
     }
 
+    final user = ref.read(authProvider).user;
+    if (user == null) {
+      if (mounted) {
+        AppUtils.showSnackBar(context, 'User not found', isError: true);
+      }
+      return;
+    }
+
+    final reservationDetails = <Map<String, String>>[
+      {'label': 'Customer', 'value': user.fullName},
+      {'label': 'Phone', 'value': user.phoneNumber},
+      {
+        'label': 'Booking Type',
+        'value': _bookingType == AppConstants.bookingTypeDelivery
+            ? 'Delivery'
+            : 'Pickup'
+      },
+      {
+        'label': 'Booking Date',
+        'value': _selectedDate != null
+            ? DateFormat('EEEE, MMM d, yyyy').format(_selectedDate!)
+            : '-'
+      },
+      {'label': 'Service', 'value': _serviceType ?? '-'},
+      {
+        'label': 'Categories',
+        'value': _selectedCategories.isEmpty ? '-' : _selectedCategories.join(', ')
+      },
+      {
+        'label': 'Add-ons',
+        'value': _selectedAddOns.isEmpty
+            ? '-'
+            : _selectedAddOns.map((a) => a['name'] as String).join(', ')
+      },
+    ];
+
+    if (_bookingType == AppConstants.bookingTypePickup && _pickupDate != null) {
+      reservationDetails.add({
+        'label': 'Pickup Date',
+        'value': DateFormat('EEEE, MMM d, yyyy').format(_pickupDate!),
+      });
+    }
+
+    if (_bookingType == AppConstants.bookingTypeDelivery) {
+      reservationDetails.add({
+        'label': 'Delivery Address',
+        'value': _deliveryAddressForBooking ?? '-',
+      });
+    }
+
     // Navigate to payment page
-    final paymentMethod = await Navigator.of(context).push<String>(
+    final paymentResult = await Navigator.of(context).push<PaymentResult>(
       MaterialPageRoute(
         builder: (_) => PaymentPage(
           totalAmount: _totalAmount,
+          reservationDetails: reservationDetails,
           onPaymentComplete: () {},
         ),
       ),
     );
 
-    if (paymentMethod == null || !mounted) return;
+    if (paymentResult == null || !mounted) return;
 
     AppUtils.showLoadingDialog(context);
 
     try {
-      final user = ref.read(authProvider).user;
-      if (user == null) {
-        if (mounted) {
-          AppUtils.hideLoadingDialog(context);
-          AppUtils.showSnackBar(context, 'User not found', isError: true);
-        }
-        return;
-      }
-
       // Create booking — the slot availability is enforced by Firestore rules
       // and the booking document itself records the slotId.
       // Slot status update is handled server-side / by admin workflow.
@@ -302,12 +374,13 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
                 serviceType: _serviceType,
                 deliveryAddress: _bookingType ==
                         AppConstants.bookingTypeDelivery
-                    ? _selectedDeliveryAddress
+                  ? _deliveryAddressForBooking
                     : null,
                 pickupDate: _bookingType == AppConstants.bookingTypePickup
                     ? _pickupDate
                     : _selectedDate,
-                paymentMethod: paymentMethod,
+                paymentMethod: paymentResult.paymentMethod,
+                paymentProofUrl: paymentResult.paymentProofDataUri,
                 totalAmount: _totalAmount,
                 deliveryFee: _deliveryFee,
                 customerName: user.fullName,
@@ -601,6 +674,23 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
               }
             },
           ),
+          if (_selectedDeliveryAddress != null) ...[
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _specificDeliveryLocationController,
+              decoration: InputDecoration(
+                labelText: 'Specific Location',
+                hintText: 'House no., street, landmark, barangay, etc.',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                prefixIcon: const Icon(Icons.home_outlined),
+              ),
+              maxLines: 2,
+              textInputAction: TextInputAction.done,
+              onChanged: (_) => setState(() {}),
+            ),
+          ],
           if (!_isLoadingDeliveryAddresses && _deliveryAddressOptions.isEmpty) ...[
             const SizedBox(height: 8),
             Text(
@@ -1049,7 +1139,6 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
     final categories = AppConstants.serviceCategories.keys.toList();
     final addOns = {
       'Fabric Conditioner': 30.0,
-      'Stain Removal': 40.0,
     };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1197,14 +1286,6 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
                       child: Text(
                         entry.key,
                         style: const TextStyle(fontSize: 15),
-                      ),
-                    ),
-                    Text(
-                      AppUtils.formatCurrency(entry.value),
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.primary,
                       ),
                     ),
                   ],
@@ -1374,7 +1455,7 @@ class _MultiStepBookingPageState extends ConsumerState<MultiStepBookingPage> {
                 ),
                 label: Text(
                   _currentStep == _totalSteps - 1
-                      ? 'Proceed to Payment'
+                      ? 'Confirm Reservation'
                       : 'Next',
                 ),
                 style: ElevatedButton.styleFrom(

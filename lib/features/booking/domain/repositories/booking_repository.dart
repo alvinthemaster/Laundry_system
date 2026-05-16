@@ -23,6 +23,7 @@ abstract class BookingRepository {
     String? customerName,
     String? customerPhone,
     String? serviceType,
+    String? paymentProofUrl,
   });
 
   // Get booked slots for a given date + time
@@ -54,6 +55,14 @@ abstract class BookingRepository {
   Future<Either<Failure, void>> notifyCustomerArrived({
     required String bookingId,
     required String customerId,
+  });
+
+  Future<Either<Failure, void>> completeBookingPayment({
+    required String bookingId,
+    required String userId,
+    required double amount,
+    required String method,
+    required String paymentProofUrl,
   });
 
   // Get booking by ID

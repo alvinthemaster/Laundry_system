@@ -45,6 +45,9 @@ class BookingEntity {
   // Delivery proof photo URL (set when driver generates receipt)
   final String? deliveryProofUrl;
 
+  // Customer GCash payment proof screenshot (base64 data URI on Spark plan)
+  final String? paymentProofUrl;
+
   const BookingEntity({
     required this.bookingId,
     required this.userId,
@@ -77,5 +80,6 @@ class BookingEntity {
     this.driverContact,
     this.driverAccepted,
     this.deliveryProofUrl,
+    this.paymentProofUrl,
   });
 }

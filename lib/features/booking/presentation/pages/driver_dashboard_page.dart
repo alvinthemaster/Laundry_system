@@ -96,23 +96,14 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
 
   Color _getStatusColor(String status) {
     switch (status.trim().toLowerCase()) {
-      case 'pending':
-        return Colors.orange;
-      case 'confirmed':
-        return Colors.blue;
-      case 'washing':
-        return Colors.purple;
       case 'ready':
         return Colors.teal;
       case 'pickup':
         return Colors.indigo;
       case 'out for delivery':
         return Colors.deepOrange;
-      case 'delivered':
       case 'completed':
         return Colors.green;
-      case 'cancelled':
-        return Colors.red;
       default:
         return Colors.grey;
     }
@@ -305,7 +296,7 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'My Assigned Deliveries',
+                      'My Assigned Bookings',
                       style:
                           Theme.of(context).textTheme.titleLarge?.copyWith(
                                 fontWeight: FontWeight.bold,
@@ -341,11 +332,6 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
                                 icon: const Icon(Icons.arrow_drop_down),
                                 items: [
                                   'All',
-                                  'Pending',
-                                  'Confirmed',
-                                  'Washing',
-                                  'Ready',
-                                  'Pickup',
                                   'Out for Delivery',
                                   'Completed',
                                 ]
@@ -437,8 +423,8 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
                               const SizedBox(height: 16),
                               Text(
                                 bookingState.bookings.isEmpty
-                                    ? 'No deliveries assigned yet'
-                                    : 'No deliveries match the filter',
+                                  ? 'No bookings assigned yet'
+                                  : 'No bookings match the filter',
                                 style: TextStyle(
                                     fontSize: 16,
                                     color: Colors.grey.shade600),
@@ -514,7 +500,9 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Icon(
-                            Icons.delivery_dining,
+                            booking.bookingType == 'pickup'
+                                ? Icons.local_laundry_service
+                                : Icons.delivery_dining,
                             color: _getStatusColor(booking.status),
                             size: 24,
                           ),
@@ -801,60 +789,28 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
   }
 
   Widget _buildStatusButtons(BookingEntity booking) {
-    // Determine which statuses are available as next steps
-    const statuses = [
-      ('Pickup', Icons.local_laundry_service, Colors.indigo),
-      ('Out for Delivery', Icons.delivery_dining, Colors.deepOrange),
-      ('Completed', Icons.check_circle, Colors.green),
-    ];
+    final canComplete =
+        booking.status.trim().toLowerCase() == 'out for delivery';
 
     return Column(
       children: [
-        Row(
-          children: statuses.map((s) {
-            final label = s.$1;
-            final icon = s.$2;
-            final color = s.$3;
-            final isActive = booking.status == label;
-            return Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 3),
-                child: isActive
-                    ? ElevatedButton.icon(
-                        onPressed: null,
-                        icon: Icon(icon, size: 15),
-                        label: Text(label,
-                            style: const TextStyle(fontSize: 11),
-                            overflow: TextOverflow.ellipsis),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: color,
-                          foregroundColor: Colors.white,
-                          disabledBackgroundColor: color.withOpacity(0.7),
-                          disabledForegroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 10),
-                        ),
-                      )
-                    : OutlinedButton.icon(
-                        onPressed: () => _updateStatus(booking, label),
-                        icon: Icon(icon, size: 15),
-                        label: Text(label,
-                            style: const TextStyle(fontSize: 11),
-                            overflow: TextOverflow.ellipsis),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: color,
-                          side: BorderSide(color: color),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 10),
-                        ),
-                      ),
-              ),
-            );
-          }).toList(),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: canComplete
+                ? () => _updateStatus(booking, 'Completed')
+                : null,
+            icon: const Icon(Icons.check_circle, size: 18),
+            label: const Text('Completed'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: Colors.grey.shade300,
+              disabledForegroundColor: Colors.grey.shade700,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
         ),
         const SizedBox(height: 8),
         SizedBox(
@@ -862,7 +818,11 @@ class _DriverDashboardPageState extends ConsumerState<DriverDashboardPage> {
           child: ElevatedButton.icon(
             onPressed: () => _notifyArrived(booking),
             icon: const Icon(Icons.notifications_active, size: 18),
-            label: const Text('Notify Customer — I Have Arrived'),
+            label: Text(
+              booking.bookingType == 'pickup'
+                  ? 'Notify Customer — I Arrived for Pickup'
+                  : 'Notify Customer — I Have Arrived',
+            ),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.teal,
               foregroundColor: Colors.white,

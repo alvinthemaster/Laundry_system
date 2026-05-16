@@ -29,6 +29,7 @@ abstract class BookingDataSource {
     String? customerName,
     String? customerPhone,
     String? serviceType,
+    String? paymentProofUrl,
   });
 
   Future<List<String>> getBookedSlots({
@@ -68,6 +69,14 @@ abstract class BookingDataSource {
     required String bookingId,
     required String customerId,
   });
+
+  Future<void> completeBookingPayment({
+    required String bookingId,
+    required String userId,
+    required double amount,
+    required String method,
+    required String paymentProofUrl,
+  });
 }
 
 class BookingDataSourceImpl implements BookingDataSource {
@@ -100,6 +109,7 @@ class BookingDataSourceImpl implements BookingDataSource {
     String? customerName,
     String? customerPhone,
     String? serviceType,
+    String? paymentProofUrl,
   }) async {
     try {
       // Enrich each category with its computed price
@@ -134,16 +144,8 @@ class BookingDataSourceImpl implements BookingDataSource {
         (sum, e) => sum + ((e['price'] as num?)?.toDouble() ?? 0.0),
       );
 
-      final computedTotal = computedCategoryTotal +
-          addOnsTotal +
-          AppConstants.bookingFee +
-          providedSlotFee +
-          resolvedDeliveryFee;
-
-      final resolvedTotal = totalAmount == null
-          ? computedTotal
-          : totalAmount +
-              (isDelivery ? (resolvedDeliveryFee - providedDeliveryFee) : 0.0);
+        final reservedDeliveryFee = isDelivery ? 50.0 : 0.0;
+        final resolvedTotal = isDelivery ? 70.0 : 20.0;
 
       final paymentStatus = paymentMethod == AppConstants.paymentGCash
           ? AppConstants.paymentPaid
@@ -174,9 +176,10 @@ class BookingDataSourceImpl implements BookingDataSource {
         machineName: machineName,
         slotId: slotId,
         slotFee: providedSlotFee,
-        deliveryFee: resolvedDeliveryFee,
+        deliveryFee: reservedDeliveryFee,
         customerName: customerName,
         customerPhone: customerPhone,
+        paymentProofUrl: paymentProofUrl,
       );
 
       final bookingRef = _firestore
@@ -282,6 +285,45 @@ class BookingDataSourceImpl implements BookingDataSource {
       throw Exception('Failed to create payment record: $e');
     }
   }
+
+  @override
+  Future<void> completeBookingPayment({
+    required String bookingId,
+    required String userId,
+    required double amount,
+    required String method,
+    required String paymentProofUrl,
+  }) async {
+    try {
+      final paymentId = _uuid.v4();
+      final batch = _firestore.batch();
+
+      final bookingRef =
+          _firestore.collection(AppConstants.bookingsCollection).doc(bookingId);
+      batch.update(bookingRef, {
+        'paymentStatus': AppConstants.paymentFullyPaid,
+        'paymentMethod': method,
+        'paymentProofUrl': paymentProofUrl,
+        'paidAt': DateTime.now().toIso8601String(),
+      });
+
+      final paymentRef = _firestore.collection('payments').doc(paymentId);
+      batch.set(paymentRef, {
+        'paymentId': paymentId,
+        'bookingId': bookingId,
+        'userId': userId,
+        'amount': amount,
+        'method': method,
+        'status': AppConstants.paymentFullyPaid,
+        'proofUrl': paymentProofUrl,
+        'paidAt': DateTime.now().toIso8601String(),
+      });
+
+      await batch.commit();
+    } catch (e) {
+      throw Exception('Failed to complete booking payment: $e');
+    }
+  }
   
   @override
   Future<List<BookingModel>> getUserBookings(String userId) async {
@@ -385,7 +427,7 @@ class BookingDataSourceImpl implements BookingDataSource {
     if (driverId.isEmpty) return [];
 
     // Query ONLY on driverId — single-field index, no composite index needed.
-    // Filter for delivery client-side to handle both 'bookingType' and
+    // Filter booking type client-side to handle both 'bookingType' and
     // 'orderType' field names (older bookings use orderType).
     final querySnapshot = await _firestore
         .collection(AppConstants.bookingsCollection)
@@ -396,7 +438,7 @@ class BookingDataSourceImpl implements BookingDataSource {
         .where((doc) {
           final data = doc.data();
           final type = (data['bookingType'] ?? data['orderType'] ?? '').toString();
-          return type == 'delivery';
+          return type == 'delivery' || type == 'pickup';
         })
         .map((doc) => BookingModel.fromJson({...doc.data(), 'bookingId': doc.id}))
         .toList();

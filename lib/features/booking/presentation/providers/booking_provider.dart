@@ -584,7 +584,8 @@ class BookingNotifier extends StateNotifier<BookingState> {
               driverName: b.driverName,
               driverContact: b.driverContact,
               deliveryProofUrl: b.deliveryProofUrl,
-              paymentProofUrl: paymentProofUrl,
+              paymentProofUrl: b.paymentProofUrl,
+              secondPaymentProofUrl: paymentProofUrl,
             );
           }
           return b;

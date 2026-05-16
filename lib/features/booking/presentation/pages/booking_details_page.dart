@@ -436,6 +436,21 @@ if (booking.timeSlot != null) ...[
                     ),
                   ],
 
+                  if (booking.secondPaymentProofUrl != null &&
+                      booking.secondPaymentProofUrl!.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text('Attached Second Payment Screenshot',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: _buildProofImage(booking.secondPaymentProofUrl!),
+                    ),
+                  ],
+
                   const Divider(height: 30),
                   Text(
                     'Booked on ${DateFormat('MMMM dd, yyyy - hh:mm a').format(booking.createdAt)}',

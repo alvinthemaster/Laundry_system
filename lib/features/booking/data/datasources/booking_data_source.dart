@@ -303,7 +303,7 @@ class BookingDataSourceImpl implements BookingDataSource {
       batch.update(bookingRef, {
         'paymentStatus': AppConstants.paymentFullyPaid,
         'paymentMethod': method,
-        'paymentProofUrl': paymentProofUrl,
+        'secondPaymentProofUrl': paymentProofUrl,
         'paidAt': DateTime.now().toIso8601String(),
       });
 

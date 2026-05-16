@@ -34,6 +34,7 @@ class BookingModel extends BookingEntity {
     super.driverAccepted,
     super.deliveryProofUrl,
     super.paymentProofUrl,
+    super.secondPaymentProofUrl,
   });
 
   factory BookingModel.fromJson(Map<String, dynamic> json) {
@@ -108,6 +109,7 @@ class BookingModel extends BookingEntity {
       driverAccepted: json['driverAccepted'] as bool?,
       deliveryProofUrl: json['deliveryProofUrl'] as String?,
       paymentProofUrl: json['paymentProofUrl'] as String?,
+      secondPaymentProofUrl: json['secondPaymentProofUrl'] as String?,
     );
   }
 
@@ -145,6 +147,8 @@ class BookingModel extends BookingEntity {
       if (driverAccepted != null) 'driverAccepted': driverAccepted,
       if (deliveryProofUrl != null) 'deliveryProofUrl': deliveryProofUrl,
       if (paymentProofUrl != null) 'paymentProofUrl': paymentProofUrl,
+      if (secondPaymentProofUrl != null)
+        'secondPaymentProofUrl': secondPaymentProofUrl,
       'createdAt': createdAt.toIso8601String(),
     };
   }
@@ -183,6 +187,7 @@ class BookingModel extends BookingEntity {
       driverAccepted: entity.driverAccepted,
       deliveryProofUrl: entity.deliveryProofUrl,
       paymentProofUrl: entity.paymentProofUrl,
+      secondPaymentProofUrl: entity.secondPaymentProofUrl,
     );
   }
 }
